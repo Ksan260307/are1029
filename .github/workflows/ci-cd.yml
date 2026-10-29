@@ -1,0 +1,298 @@
+# Number Road - CI/CD
+#
+#   push / PR      : Blender model check, Unity tests, WebGL + Android builds
+#   push to main   : + deploy the WebGL build to GitHub Pages (play on iPhone / iPad / Android browsers)
+#   tag v*         : + iOS (Xcode project + unsigned .ipa) and a GitHub Release with APK / IPA / WebGL zip
+#   manual run     : choose whether to include iOS
+#
+# Required repository secrets (Settings > Secrets and variables > Actions), see README:
+#   UNITY_LICENSE, UNITY_EMAIL, UNITY_PASSWORD
+# Optional (stable Android signing so updates install over the previous version):
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASS, ANDROID_KEYALIAS_NAME, ANDROID_KEYALIAS_PASS
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      ios:
+        description: Also build iOS (Xcode project + unsigned .ipa on a macOS runner)
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PROJECT_PATH: NumberRoad
+  BLENDER_VERSION: '5.2.0'
+
+jobs:
+  setup:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      unity: ${{ steps.plan.outputs.unity }}
+      ios: ${{ steps.plan.outputs.ios }}
+      platforms: ${{ steps.plan.outputs.platforms }}
+    steps:
+      - id: plan
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          WANT_IOS: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.ios == true }}
+        run: |
+          if [ -n "$UNITY_LICENSE" ] && [ -n "$UNITY_EMAIL" ] && [ -n "$UNITY_PASSWORD" ]; then
+            echo "unity=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "unity=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Unity license not configured::Add the UNITY_LICENSE, UNITY_EMAIL and UNITY_PASSWORD secrets to run the Unity tests and builds (see README)."
+          fi
+          if [ "$WANT_IOS" = "true" ]; then
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+            echo 'platforms=["WebGL","Android","iOS"]' >> "$GITHUB_OUTPUT"
+          else
+            echo "ios=false" >> "$GITHUB_OUTPUT"
+            echo 'platforms=["WebGL","Android"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  models:
+    name: Blender models
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache Blender
+        id: blender-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/blender
+          key: blender-${{ env.BLENDER_VERSION }}-linux-x64
+
+      - name: Install Blender ${{ env.BLENDER_VERSION }}
+        run: |
+          if [ ! -x ~/blender/blender ]; then
+            mkdir -p ~/blender
+            curl -fsSL "https://download.blender.org/release/Blender${BLENDER_VERSION%.*}/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
+              | tar -xJ --strip-components=1 -C ~/blender
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1 > /dev/null
+          ~/blender/blender --version | head -1
+
+      - name: Generate models from blender/build_models.py
+        run: ~/blender/blender -b --factory-startup -P blender/build_models.py -- --out out/models
+
+      - name: Check every generated model is committed
+        run: |
+          missing=0
+          for f in out/models/*.fbx; do
+            name=$(basename "$f")
+            if [ ! -f "$PROJECT_PATH/Assets/NumberRoad/Resources/Models/$name" ]; then
+              echo "::error::$name is produced by build_models.py but not committed. Run the script locally and commit the FBX."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: blender-models
+          path: out/models
+          retention-days: 7
+
+  test:
+    name: Unity tests
+    needs: setup
+    if: needs.setup.outputs.unity == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/cache@v6
+        with:
+          path: NumberRoad/Library
+          key: Library-test-${{ hashFiles('NumberRoad/Assets/**', 'NumberRoad/Packages/**', 'NumberRoad/ProjectSettings/**') }}
+          restore-keys: Library-test-
+
+      - uses: game-ci/unity-test-runner@v4
+        id: tests
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: ${{ env.PROJECT_PATH }}
+          testMode: all
+          artifactsPath: test-results
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: Unity test results
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-results
+          path: ${{ steps.tests.outputs.artifactsPath }}
+          retention-days: 7
+
+  build:
+    name: Build ${{ matrix.targetPlatform }}
+    needs: [setup, test]
+    if: needs.setup.outputs.unity == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        targetPlatform: ${{ fromJSON(needs.setup.outputs.platforms) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space (Unity images are large)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
+      - uses: actions/cache@v6
+        with:
+          path: NumberRoad/Library
+          key: Library-${{ matrix.targetPlatform }}-${{ hashFiles('NumberRoad/Assets/**', 'NumberRoad/Packages/**', 'NumberRoad/ProjectSettings/**') }}
+          restore-keys: Library-${{ matrix.targetPlatform }}-
+
+      - uses: game-ci/unity-builder@v5
+        id: build
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: ${{ env.PROJECT_PATH }}
+          targetPlatform: ${{ matrix.targetPlatform }}
+          buildName: NumberRoad
+          buildMethod: NumberRoad.EditorTools.BuildScript.BuildFromCommandLine
+          versioning: Semantic
+          androidExportType: androidPackage
+          androidKeystoreName: numberroad.keystore
+          androidKeystoreBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          androidKeystorePass: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          androidKeyaliasName: ${{ secrets.ANDROID_KEYALIAS_NAME }}
+          androidKeyaliasPass: ${{ secrets.ANDROID_KEYALIAS_PASS }}
+
+      # the Xcode project contains shell scripts; tar keeps their executable bit
+      - name: Pack Xcode project
+        if: matrix.targetPlatform == 'iOS'
+        run: tar -czf build/iOS/NumberRoad-xcode.tar.gz -C build/iOS NumberRoad
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: build-${{ matrix.targetPlatform }}
+          path: ${{ matrix.targetPlatform == 'iOS' && 'build/iOS/NumberRoad-xcode.tar.gz' || format('build/{0}', matrix.targetPlatform) }}
+          retention-days: 14
+
+  ios-ipa:
+    name: iOS app (unsigned .ipa)
+    needs: [setup, build]
+    if: needs.setup.outputs.ios == 'true' && needs.build.result == 'success'
+    runs-on: macos-15
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: build-iOS
+          path: ios
+
+      - name: Build with Xcode (no code signing)
+        run: |
+          set -euo pipefail
+          tar -xzf ios/NumberRoad-xcode.tar.gz -C ios
+          cd ios/NumberRoad
+          xcodebuild -project Unity-iPhone.xcodeproj -scheme Unity-iPhone -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -n 40
+          app=$(find "$RUNNER_TEMP/dd/Build/Products" -maxdepth 2 -name '*.app' | head -1)
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$app" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/NumberRoad-unsigned.ipa" Payload)
+          ls -lh "$GITHUB_WORKSPACE/NumberRoad-unsigned.ipa"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios-ipa
+          path: NumberRoad-unsigned.ipa
+          retention-days: 14
+
+  deploy-pages:
+    name: Deploy WebGL to GitHub Pages
+    needs: build
+    # deploy the web build even if another platform in the matrix failed
+    if: ${{ !cancelled() && needs.build.result != 'skipped' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: build-WebGL
+          path: webgl
+
+      - name: Prepare site
+        run: |
+          mkdir -p site
+          cp -R webgl/NumberRoad/. site/
+          touch site/.nojekyll
+          ls -la site
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v5
+
+  release:
+    name: GitHub Release
+    needs: [build, ios-ipa]
+    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          cp dist/build-Android/NumberRoad.apk "release/NumberRoad-${GITHUB_REF_NAME}.apk"
+          (cd dist/build-WebGL && zip -qr "$GITHUB_WORKSPACE/release/NumberRoad-${GITHUB_REF_NAME}-webgl.zip" NumberRoad)
+          if [ -f dist/ios-ipa/NumberRoad-unsigned.ipa ]; then
+            cp dist/ios-ipa/NumberRoad-unsigned.ipa "release/NumberRoad-${GITHUB_REF_NAME}-unsigned.ipa"
+          fi
+          ls -lh release
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: release/*
+          generate_release_notes: true

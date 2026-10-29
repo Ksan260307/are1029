@@ -1,0 +1,46 @@
+# --- Unity (project lives in NumberRoad/) ---
+/NumberRoad/[Ll]ibrary/
+/NumberRoad/[Tt]emp/
+/NumberRoad/[Oo]bj/
+/NumberRoad/[Bb]uild/
+/NumberRoad/[Bb]uilds/
+/NumberRoad/[Ll]ogs/
+/NumberRoad/[Uu]ser[Ss]ettings/
+/NumberRoad/[Mm]emoryCaptures/
+/NumberRoad/[Rr]ecordings/
+/NumberRoad/*.csproj
+/NumberRoad/*.sln
+/NumberRoad/*.slnx
+.vs/
+.idea/
+.vscode/
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.opendb
+*.VC.db
+sysinfo.txt
+crashlytics-buildid.txt
+*.unitypackage
+
+# --- build outputs ---
+/build/
+/builds/
+/artifacts/
+/test-results/
+*.apk
+*.aab
+*.ipa
+
+# --- secrets: never commit signing keys or licenses ---
+*.keystore
+*.jks
+*.ulf
+*.p12
+*.mobileprovision
+
+# --- Blender ---
+*.blend1
+*.blend2
+__pycache__/
