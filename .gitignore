@@ -24,7 +24,9 @@ sysinfo.txt
 crashlytics-buildid.txt
 *.unitypackage
 
-# --- build outputs ---
+# --- build outputs (the published site is docs/, which IS committed) ---
+/WebGLBuild/
+/build-tmp/
 /build/
 /builds/
 /artifacts/
@@ -44,3 +46,10 @@ crashlytics-buildid.txt
 *.blend1
 *.blend2
 __pycache__/
+
+# --- local tooling ---
+.claude/
+.pytest_cache/
+
+# --- Unity Test Runner temp scenes ---
+/NumberRoad/Assets/InitTestScene*

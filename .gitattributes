@@ -10,6 +10,7 @@
 *.md      text eol=lf
 *.html    text eol=lf
 *.webmanifest text eol=lf
+*.ps1     text eol=crlf
 
 # Unity YAML
 *.unity   text eol=lf
@@ -19,6 +20,12 @@
 *.meta    text eol=lf
 
 # binaries
-*.fbx     binary
-*.png     binary
-*.blend   binary
+*.fbx      binary
+*.png      binary
+*.jpg      binary
+*.blend    binary
+*.unityweb binary
+*.wasm     binary
+*.data     binary
+*.gz       binary
+*.br       binary
