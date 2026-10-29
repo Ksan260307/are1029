@@ -25,6 +25,7 @@ namespace NumberRoad.UI
         readonly Text[] _rowLabels = new Text[Rows];
         readonly Text[] _rowValues = new Text[Rows];
         readonly Text _total;
+        readonly Text _score;
         readonly GameObject _gemsRow;
         readonly RectTransform _gemsRect;
         readonly RectTransform _coinIcon;
@@ -51,7 +52,7 @@ namespace NumberRoad.UI
             Root = dim.gameObject;
 
             Image panel = UIFactory.Image(dim.rectTransform, "Panel", UIFactory.Card, GameAssets.RoundedSprite);
-            UIFactory.Place(panel.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(840f, 1360f));
+            UIFactory.Place(panel.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(840f, 1420f));
             panel.gameObject.AddComponent<PopIn>();
             RectTransform p = panel.rectTransform;
 
@@ -83,6 +84,9 @@ namespace NumberRoad.UI
             UIFactory.Place(coin, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(-190f, -800f), new Vector2(76f, 76f));
             _total = UIFactory.Text(p, "Total", "+0", 86, UIFactory.Gold, TextAnchor.MiddleLeft, UIFactory.OutlineDark, 4f);
             UIFactory.Place(_total.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, 0.5f), new Vector2(-136f, -800f), new Vector2(520f, 104f));
+
+            _score = UIFactory.Text(p, "Score", string.Empty, 36, UIFactory.Blue);
+            UIFactory.Place(_score.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0f, -860f), new Vector2(800f, 50f));
 
             RectTransform gemsRow = UIFactory.Place(UIFactory.Rect(p, "GemsRow"), new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0f, -880f), new Vector2(400f, 60f));
             _gemsRow = gemsRow.gameObject;
@@ -179,8 +183,12 @@ namespace NumberRoad.UI
             float bottom = -380f - Mathf.Max(1, rows.Count) * 44f;
             _coinIcon.anchoredPosition = new Vector2(-190f, bottom - 50f);
             _total.rectTransform.anchoredPosition = new Vector2(-136f, bottom - 50f);
-            _gemsRect.anchoredPosition = new Vector2(0f, bottom - 130f);
-            float below = result.Gems > 0 ? bottom - 200f : bottom - 130f;
+            _score.rectTransform.anchoredPosition = new Vector2(0f, bottom - 112f);
+            _score.text = "SCORE " + Fmt.Coins(result.Score) + (result.Rank > 0 ? "    RANK #" + result.Rank : string.Empty) +
+                          (result.Rank == 1 && save.ranking.Count > 1 ? "  NEW BEST!" : string.Empty);
+            _score.color = result.Rank == 1 ? UIFactory.GoldDark : UIFactory.Blue;
+            _gemsRect.anchoredPosition = new Vector2(0f, bottom - 172f);
+            float below = result.Gems > 0 ? bottom - 240f : bottom - 170f;
             _chestRect.anchoredPosition = new Vector2(0f, below - 70f);
             _awards.rectTransform.anchoredPosition = new Vector2(0f, won ? below - 180f : below);
 

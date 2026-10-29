@@ -37,6 +37,9 @@ namespace NumberRoad.Gameplay
         public int ChestCoins;
         public int ChestGems;
         public bool ChestOpened;
+        public int Score;
+        /// <summary>Place in the score ranking (1 = best), 0 when outside the top 10.</summary>
+        public int Rank;
     }
 
     /// <summary>
@@ -86,6 +89,8 @@ namespace NumberRoad.Gameplay
         int _paidCrates;
         float _paidSeconds;
         readonly int[] _paidKillsByType = new int[Enemies.All.Length];
+        /// <summary>This run's ranking entry (updated, not duplicated, when a revived run ends again).</summary>
+        RankEntry _runEntry;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Bootstrap()
@@ -331,6 +336,7 @@ namespace NumberRoad.Gameplay
             _paidCoins = _paidGems = _paidKills = _paidGates = _paidPerfect = _paidClassUps = _paidGold = _paidCrates = 0;
             _paidSeconds = 0f;
             Array.Clear(_paidKillsByType, 0, _paidKillsByType.Length);
+            _runEntry = null;
         }
 
         public void ShowTitle()
@@ -487,12 +493,29 @@ namespace NumberRoad.Gameplay
                 Save.statLosses++;
                 result.CanRevive = s.CanRevive;
             }
+            RecordRanking(result, s);
             Save.lastSeenUnix = Daily.NowUnix;
             Persist();
 
             LastResult = result;
             State = GameState.Result;
             UI.ShowResult(result, Save);
+        }
+
+        void RecordRanking(RunResult result, LevelSession s)
+        {
+            result.Score = Ranking.Score(s.Stats.Kills, s.Squad.Peak, s.Stats.BestCombo, result.Level, result.Won, result.Stars);
+            _runEntry = _runEntry ?? new RankEntry();
+            _runEntry.score = result.Score;
+            _runEntry.level = result.Level;
+            _runEntry.kills = s.Stats.Kills;
+            _runEntry.army = s.Squad.Peak;
+            _runEntry.combo = s.Stats.BestCombo;
+            _runEntry.won = result.Won;
+            _runEntry.daily = result.Daily;
+            _runEntry.unix = Daily.NowUnix;
+            Ranking.Record(Save, _runEntry);
+            result.Rank = Ranking.PlaceOf(Save, _runEntry, RankMetric.Score);
         }
 
         /// <summary>Gem revive from the defeat screen: the same run continues.</summary>
@@ -552,7 +575,7 @@ namespace NumberRoad.Gameplay
 
         public void SetStartLine(UnitLine line)
         {
-            if (State != GameState.Title || !Units.IsUnlocked(line, Save.level)) return;
+            if (State != GameState.Title || !Units.IsUnlocked(line, Save.bestLevel)) return;
             Save.startLine = (int)line;
             Persist();
             ShowTitle();
@@ -570,7 +593,7 @@ namespace NumberRoad.Gameplay
         public Prize ClaimLogin()
         {
             int today = Daily.Today;
-            Prize prize = Daily.LoginPrize(Daily.StreakDay(Save), Save.level);
+            Prize prize = Daily.LoginPrize(Daily.StreakDay(Save), Save.bestLevel);
             if (!Daily.LoginRewardReady(Save, today)) return prize;
             Save.lastLoginRewardDay = today;
             Daily.Grant(Save, prize, CheapestUpgrade());
@@ -584,7 +607,7 @@ namespace NumberRoad.Gameplay
         public int ClaimLucky()
         {
             int today = Daily.Today;
-            Prize[] prizes = Daily.LuckyPrizes(Save.level);
+            Prize[] prizes = Daily.LuckyPrizes(Save.bestLevel);
             int index = Daily.LuckyIndex(today, prizes.Length);
             if (!Daily.LuckyReady(Save, today)) return index;
             Save.lastLuckyDay = today;
@@ -605,6 +628,30 @@ namespace NumberRoad.Gameplay
         }
 
         public void ClearOfflineCoins() => OfflineCoins = 0;
+
+        /// <summary>Level select (title screen): any level up to the furthest one reached.</summary>
+        public void SelectLevel(int level)
+        {
+            if (State != GameState.Title) return;
+            int before = Save.level;
+            Save.SelectLevel(level);
+            if (Save.level == before) return;
+            Persist();
+            ShowTitle();
+        }
+
+        /// <summary>Settings > reset: everything starts over except the sound and display settings.</summary>
+        public void ResetProgress()
+        {
+            if (State != GameState.Title) return;
+            Save.ResetProgress();
+            Context.LowQuality = false;
+            _slowWindows = 0;
+            ApplyQuality();
+            Persist();
+            ShowTitle();
+            Context.Audio.Play(Sfx.Banner);
+        }
 
         // --- Settings ---------------------------------------------------------------------------
 

@@ -96,6 +96,9 @@ namespace NumberRoad.Core
         public long lastSeenUnix;
         public bool doubleCoinsNextRun;
 
+        /// <summary>Best runs (see <see cref="Ranking"/>).</summary>
+        public List<RankEntry> ranking = new List<RankEntry>();
+
         public int GetUpgrade(UpgradeKind kind)
         {
             switch (kind)
@@ -157,7 +160,7 @@ namespace NumberRoad.Core
             get
             {
                 var line = (UnitLine)Mathf.Clamp(startLine, 0, Units.Lines - 1);
-                return Units.IsUnlocked(line, level) ? line : UnitLine.Bow;
+                return Units.IsUnlocked(line, bestLevel) ? line : UnitLine.Bow;
             }
         }
 
@@ -237,6 +240,31 @@ namespace NumberRoad.Core
             bestLevel = Mathf.Max(bestLevel, level);
         }
 
+        /// <summary>Level select: any level up to the furthest one reached can be played (again).</summary>
+        public void SelectLevel(int value) => level = Mathf.Clamp(value, 1, bestLevel);
+
+        /// <summary>
+        /// Starts over: levels, currencies, upgrades, records, awards and the ranking are cleared. Sound and
+        /// display settings stay, and so does today's daily bonus state (a reset does not hand out a second one).
+        /// </summary>
+        public void ResetProgress()
+        {
+            var fresh = new SaveData
+            {
+                sound = sound,
+                music = music,
+                vibration = vibration,
+                quality = quality,
+                loginDay = loginDay,
+                loginStreak = loginStreak,
+                lastLoginRewardDay = lastLoginRewardDay,
+                lastLuckyDay = lastLuckyDay,
+                lastChallengeDay = lastChallengeDay,
+                lastSeenUnix = lastSeenUnix,
+            };
+            JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(fresh), this);
+        }
+
         public void Sanitize()
         {
             version = CurrentVersion;
@@ -250,6 +278,7 @@ namespace NumberRoad.Core
             stars = stars ?? new List<int>();
             enemyKills = enemyKills ?? new List<int>();
             claimedAchievements = claimedAchievements ?? new List<string>();
+            ranking = ranking ?? new List<RankEntry>();
             unitsSeenMask |= 1;
         }
     }

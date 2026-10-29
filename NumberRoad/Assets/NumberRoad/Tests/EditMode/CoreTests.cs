@@ -499,9 +499,9 @@ namespace NumberRoad.Tests
         [Test]
         public void StartLine_FallsBackWhileLocked()
         {
-            var data = new SaveData { startLine = (int)UnitLine.Holy, level = 2 };
+            var data = new SaveData { startLine = (int)UnitLine.Holy, level = 2, bestLevel = 2 };
             Assert.AreEqual(UnitLine.Bow, data.StartLine);
-            data.level = 9;
+            data.bestLevel = 9;
             Assert.AreEqual(UnitLine.Holy, data.StartLine);
         }
 
@@ -614,6 +614,123 @@ namespace NumberRoad.Tests
             Assert.AreEqual(3, save.gems);
             Assert.AreEqual(1, save.powerLevel);
             Assert.IsTrue(save.doubleCoinsNextRun);
+        }
+    }
+
+    public class RankingTests
+    {
+        static RankEntry Run(int score, int army, int combo, long unix) =>
+            new RankEntry { score = score, army = army, combo = combo, level = 1, unix = unix };
+
+        [Test]
+        public void Score_RewardsKillsComboArmyAndClears()
+        {
+            int lost = Ranking.Score(100, 50, 20, 5, false, 0);
+            Assert.Greater(Ranking.Score(200, 50, 20, 5, false, 0), lost);
+            Assert.Greater(Ranking.Score(100, 50, 40, 5, false, 0), lost);
+            Assert.Greater(Ranking.Score(100, 50, 20, 5, true, 1), lost);
+            Assert.Greater(Ranking.Score(100, 50, 20, 5, true, 3), Ranking.Score(100, 50, 20, 5, true, 1));
+            Assert.GreaterOrEqual(Ranking.Score(int.MaxValue / 2, Balance.MaxSquad, 100000, 9999, true, 3), 0, "no overflow");
+        }
+
+        [Test]
+        public void Top_SortsHighestFirst_AndKeepsTen()
+        {
+            var save = new SaveData();
+            for (int i = 0; i < 25; i++) Ranking.Record(save, Run(i * 10, 25 - i, i % 7, i));
+            List<RankEntry> score = Ranking.Top(save, RankMetric.Score);
+            Assert.AreEqual(Ranking.Size, score.Count);
+            Assert.AreEqual(240, score[0].score);
+            for (int i = 1; i < score.Count; i++) Assert.LessOrEqual(score[i].score, score[i - 1].score);
+            Assert.AreEqual(25, Ranking.Top(save, RankMetric.Army)[0].army, "the best army list keeps its own top runs");
+            // only runs that are in some top 10 survive
+            Assert.LessOrEqual(save.ranking.Count, 3 * Ranking.Size);
+            Assert.Less(save.ranking.Count, 25);
+        }
+
+        [Test]
+        public void RecordingTheSameRunAgain_UpdatesIt()
+        {
+            var save = new SaveData();
+            RankEntry run = Run(100, 10, 5, 1);
+            Ranking.Record(save, run);
+            run.score = 500;
+            Ranking.Record(save, run);
+            Assert.AreEqual(1, save.ranking.Count);
+            Assert.AreEqual(1, Ranking.PlaceOf(save, run, RankMetric.Score));
+            Ranking.Record(save, Run(900, 1, 1, 2));
+            Assert.AreEqual(2, Ranking.PlaceOf(save, run, RankMetric.Score));
+        }
+
+        [Test]
+        public void Ranking_SurvivesSaving()
+        {
+            var save = new SaveData();
+            Ranking.Record(save, Run(1234, 56, 7, 99));
+            SaveData copy = SaveSystem.FromJson(SaveSystem.ToJson(save));
+            Assert.AreEqual(1, copy.ranking.Count);
+            Assert.AreEqual(1234, copy.ranking[0].score);
+            Assert.AreEqual(56, copy.ranking[0].army);
+        }
+    }
+
+    public class LevelSelectAndResetTests
+    {
+        [Test]
+        public void SelectLevel_StaysWithinTheLevelsReached()
+        {
+            var save = new SaveData { level = 8, bestLevel = 8 };
+            save.SelectLevel(3);
+            Assert.AreEqual(3, save.level);
+            save.SelectLevel(20);
+            Assert.AreEqual(8, save.level);
+            save.SelectLevel(0);
+            Assert.AreEqual(1, save.level);
+            save.CompleteLevel();
+            Assert.AreEqual(2, save.level);
+            Assert.AreEqual(8, save.bestLevel, "replaying an old level keeps the furthest level");
+        }
+
+        [Test]
+        public void Unlocks_FollowTheFurthestLevel()
+        {
+            var save = new SaveData { level = 1, bestLevel = 9, startLine = (int)UnitLine.Holy };
+            Assert.AreEqual(UnitLine.Holy, save.StartLine, "going back to level 1 keeps the lines unlocked later");
+            Assert.AreEqual(12, Daily.ChallengeLevel(save));
+        }
+
+        [Test]
+        public void ResetProgress_ClearsProgress_KeepsSettings()
+        {
+            var save = new SaveData
+            {
+                level = 30, bestLevel = 31, coins = 9999, gems = 77, powerLevel = 12, statKills = 5000,
+                sound = false, music = false, vibration = false, quality = (int)Quality.Low,
+                loginStreak = 4, lastLoginRewardDay = 1234, lastLuckyDay = 1234,
+            };
+            save.RecordStars(5, 3);
+            save.SeeEnemy(4);
+            Ranking.Record(save, new RankEntry { score = 10 });
+            save.claimedAchievements.Add("Kills_0");
+
+            save.ResetProgress();
+
+            Assert.AreEqual(1, save.level);
+            Assert.AreEqual(1, save.bestLevel);
+            Assert.AreEqual(0, save.coins);
+            Assert.AreEqual(0, save.gems);
+            Assert.AreEqual(0, save.powerLevel);
+            Assert.AreEqual(0, save.statKills);
+            Assert.AreEqual(0, save.TotalStars);
+            Assert.AreEqual(0, save.EnemiesDiscovered);
+            Assert.IsEmpty(save.ranking);
+            Assert.IsEmpty(save.claimedAchievements);
+            Assert.IsFalse(save.sound);
+            Assert.IsFalse(save.music);
+            Assert.IsFalse(save.vibration);
+            Assert.AreEqual((int)Quality.Low, save.quality);
+            Assert.AreEqual(1234, save.lastLoginRewardDay, "a reset does not hand out today's bonus again");
+            Assert.AreEqual(4, save.loginStreak);
         }
     }
 }

@@ -143,9 +143,26 @@ namespace NumberRoad.UI
             }
             Big(body, "QUALITY: " + quality, UIFactory.Blue, _game.CycleQuality, top, new Vector2(0f, -470f), new Vector2(620f, 130f), out _);
             Label(body, "LOW quality draws far enemies simply and uses fewer particles. AUTO switches to it when the game runs slowly.",
-                30, UIFactory.Gray, TextAnchor.UpperCenter, top, new Vector2(0f, -620f), new Vector2(720f, 120f));
-            Label(body, "HOW TO PLAY\nDrag to steer. Pass through the best gate, shoot crates and gold goblins,\nbuild a huge army and defeat the boss!",
-                30, UIFactory.Ink, TextAnchor.UpperCenter, top, new Vector2(0f, -760f), new Vector2(740f, 200f));
+                28, UIFactory.Gray, TextAnchor.UpperCenter, top, new Vector2(0f, -606f), new Vector2(720f, 90f));
+            Label(body, "HOW TO PLAY\nDrag to steer. Pass through the best gate, shoot crates and gold goblins, build a huge army and defeat the boss!",
+                28, UIFactory.Ink, TextAnchor.UpperCenter, top, new Vector2(0f, -706f), new Vector2(740f, 140f));
+            Big(body, "RESET PROGRESS", UIFactory.Red, ShowResetConfirm, new Vector2(0.5f, 0f), new Vector2(0f, 30f), new Vector2(520f, 110f), out Text reset);
+            reset.fontSize = 40;
+        }
+
+        void ShowResetConfirm()
+        {
+            RectTransform body = Open("RESET?", new Vector2(820f, 760f), null);
+            var top = new Vector2(0.5f, 1f);
+            Label(body, "ALL PROGRESS WILL BE DELETED:", 38, UIFactory.Red, TextAnchor.MiddleCenter, top, new Vector2(0f, -20f), new Vector2(760f, 56f));
+            Label(body, "levels, coins, gems, upgrades, awards, records and the ranking.\nSound and display settings are kept. This cannot be undone.",
+                30, UIFactory.Ink, TextAnchor.UpperCenter, top, new Vector2(0f, -100f), new Vector2(740f, 160f));
+            Big(body, "CANCEL", UIFactory.Gray, ShowSettings, new Vector2(0.5f, 0f), new Vector2(-180f, 40f), new Vector2(320f, 130f), out _);
+            Big(body, "RESET", UIFactory.Red, () =>
+            {
+                CloseAll();
+                _game.ResetProgress();
+            }, new Vector2(0.5f, 0f), new Vector2(180f, 40f), new Vector2(320f, 130f), out _);
         }
 
         void Toggle(RectTransform body, string name, bool on, Action onClick, float y)
@@ -153,6 +170,102 @@ namespace NumberRoad.UI
             Button b = Big(body, name + (on ? ": ON" : ": OFF"), on ? UIFactory.Green : UIFactory.Gray, onClick,
                 new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(620f, 130f), out _);
             b.name = name;
+        }
+
+        // --- Level select ----------------------------------------------------------------
+
+        public void ShowLevels()
+        {
+            RectTransform list = OpenList("LEVELS", ShowLevels, 14f);
+            const int perRow = 5;
+            int shown = Save.bestLevel + 5;
+            for (int first = 1; first <= shown; first += perRow)
+            {
+                RectTransform row = UIFactory.Item(list, "Row" + first, new Vector2(840f, 156f));
+                for (int k = 0; k < perRow && first + k <= shown; k++)
+                {
+                    int level = first + k;
+                    bool open = level <= Save.bestLevel;
+                    bool current = level == Save.level;
+                    Color color = !open ? UIFactory.Gray : current ? UIFactory.Gold : Biomes.ForLevel(level).Sky;
+                    Button cell = UIFactory.Button(row, "Level" + level, level.ToString(CultureInfo.InvariantCulture), color, 46, () =>
+                    {
+                        CloseAll();
+                        _game.SelectLevel(level);
+                    }, out Text text);
+                    UIFactory.Place((RectTransform)cell.transform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(8f + k * 167f, 0f), new Vector2(156f, 150f));
+                    cell.interactable = open;
+                    text.rectTransform.offsetMin = new Vector2(0f, 34f);
+                    if (open)
+                    {
+                        int stars = Save.StarsFor(level);
+                        for (int st = 0; st < 3; st++)
+                        {
+                            Image star = UIFactory.Star(cell.targetGraphic.transform, 34f, st < stars);
+                            UIFactory.Place(star.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2((st - 1) * 38f, 14f), new Vector2(34f, 34f));
+                        }
+                    }
+                    string tag = level % 10 == 0 ? "CASTLE" : level % 5 == 0 ? "GOLD" : null;
+                    if (tag != null)
+                    {
+                        Text t = UIFactory.Text(cell.targetGraphic.transform, "Tag", tag, 20, Color.white, TextAnchor.UpperCenter, UIFactory.OutlineDark, 2f);
+                        UIFactory.Place(t.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -6f), new Vector2(150f, 26f));
+                    }
+                }
+            }
+            // start with the current level in view
+            Canvas.ForceUpdateCanvases();
+            int rows = (shown + perRow - 1) / perRow;
+            int currentRow = (Save.level - 1) / perRow;
+            _scroll.verticalNormalizedPosition = rows <= 1 ? 1f : 1f - Mathf.Clamp01(currentRow / (float)(rows - 1));
+        }
+
+        // --- Ranking -----------------------------------------------------------------------
+
+        RankMetric _rankTab;
+
+        public void ShowRanking() => ShowRanking(_rankTab);
+
+        void ShowRanking(RankMetric tab)
+        {
+            _rankTab = tab;
+            RectTransform body = Open("RANKING", new Vector2(900f, 1480f), () => ShowRanking(tab));
+            var top = new Vector2(0.5f, 1f);
+            (RankMetric metric, string label)[] tabs = { (RankMetric.Score, "SCORE"), (RankMetric.Army, "ARMY"), (RankMetric.Combo, "COMBO") };
+            for (int i = 0; i < tabs.Length; i++)
+            {
+                RankMetric m = tabs[i].metric;
+                Big(body, tabs[i].label, m == tab ? UIFactory.Blue : UIFactory.Gray, () => ShowRanking(m), top,
+                    new Vector2((i - 1) * 270f, -10f), new Vector2(250f, 100f), out Text t);
+                t.fontSize = 38;
+            }
+            Label(body, "YOUR BEST RUNS ON THIS DEVICE", 26, UIFactory.Gray, TextAnchor.MiddleCenter, top, new Vector2(0f, -122f), new Vector2(800f, 36f));
+
+            System.Collections.Generic.List<RankEntry> entries = Ranking.Top(Save, tab);
+            if (entries.Count == 0)
+            {
+                Label(body, "NO RUNS YET - GO PLAY!", 40, UIFactory.Ink, TextAnchor.MiddleCenter, top, new Vector2(0f, -400f), new Vector2(800f, 60f));
+                return;
+            }
+            for (int i = 0; i < entries.Count; i++)
+            {
+                RankEntry e = entries[i];
+                float y = -170f - i * 112f;
+                Image back = UIFactory.Image(body, "Row" + i, i == 0 ? new Color(1f, 0.85f, 0.3f, 0.35f) : new Color(0f, 0f, 0f, i % 2 == 0 ? 0.06f : 0.03f), GameAssets.RoundedSprite);
+                UIFactory.Place(back.rectTransform, top, top, new Vector2(0f, y), new Vector2(840f, 104f));
+                RectTransform r = back.rectTransform;
+                Color medal = i == 0 ? UIFactory.GoldDark : i == 1 ? UIFactory.Gray : i == 2 ? new Color32(176, 110, 60, 255) : UIFactory.Ink;
+                Label(r, "#" + (i + 1), 46, medal, TextAnchor.MiddleCenter, new Vector2(0f, 0.5f), new Vector2(16f, 0f), new Vector2(110f, 80f), new Vector2(0f, 0.5f));
+                Label(r, Fmt.Num(Ranking.Value(e, tab)), 46, UIFactory.Ink, TextAnchor.MiddleLeft, new Vector2(0f, 0.5f), new Vector2(140f, 10f), new Vector2(330f, 60f), new Vector2(0f, 0.5f));
+                string where = (e.daily ? "DAILY " : "LEVEL ") + e.level + (e.won ? "  CLEAR" : "");
+                Label(r, where, 24, e.won ? UIFactory.Green : UIFactory.Gray, TextAnchor.MiddleLeft, new Vector2(0f, 0.5f), new Vector2(142f, -30f), new Vector2(330f, 34f), new Vector2(0f, 0.5f));
+                string detail = tab == RankMetric.Score
+                    ? "ARMY " + Fmt.Num(e.army) + "   COMBO " + Fmt.Num(e.combo)
+                    : "SCORE " + Fmt.Num(e.score);
+                Label(r, detail, 24, UIFactory.Gray, TextAnchor.MiddleRight, new Vector2(1f, 0.5f), new Vector2(-20f, 14f), new Vector2(360f, 34f), new Vector2(1f, 0.5f));
+                string date = System.DateTimeOffset.FromUnixTimeSeconds(e.unix).ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture);
+                Label(r, date, 22, UIFactory.Gray, TextAnchor.MiddleRight, new Vector2(1f, 0.5f), new Vector2(-20f, -22f), new Vector2(360f, 30f), new Vector2(1f, 0.5f));
+            }
         }
 
         // --- Barracks ------------------------------------------------------------------
@@ -165,7 +278,7 @@ namespace NumberRoad.UI
             for (int l = 0; l < Units.Lines; l++)
             {
                 var line = (UnitLine)l;
-                bool open = Units.IsUnlocked(line, Save.level);
+                bool open = Units.IsUnlocked(line, Save.bestLevel);
                 RectTransform row = UIFactory.Item(list, "Line" + l, new Vector2(840f, 360f));
                 Image back = UIFactory.Image(row, "Back", Color.Lerp(Units.LineColor(line), Color.white, 0.75f), GameAssets.RoundedSprite);
                 UIFactory.Fill(back.rectTransform);
@@ -181,7 +294,7 @@ namespace NumberRoad.UI
                     Label(row, known ? u.Name : "???", 28, UIFactory.Ink, TextAnchor.MiddleCenter, topLeft, new Vector2(x, -210f), new Vector2(200f, 36f), hang);
                     string stats = known
                         ? "DMG " + u.Damage.ToString("0.#", CultureInfo.InvariantCulture) + "  RATE " + u.Rate.ToString("0.#", CultureInfo.InvariantCulture) + "\n" + u.Description
-                        : t == 0 ? "UNLOCK THE LINE" : "CLASS UP TO MEET";
+                        : t > 0 ? "CLASS UP TO MEET" : open ? "PICK IT AT THE START" : "UNLOCKS AT LEVEL " + Units.UnlockLevel(line);
                     Label(row, stats, 20, UIFactory.Gray, TextAnchor.UpperCenter, topLeft, new Vector2(x, -250f), new Vector2(194f, 100f), hang);
                     if (t < Units.Tiers - 1)
                     {
@@ -309,7 +422,7 @@ namespace NumberRoad.UI
                 TextAnchor.MiddleCenter, top, new Vector2(0f, -20f), new Vector2(820f, 60f));
             for (int d = 1; d <= 7; d++)
             {
-                Prize prize = Daily.LoginPrize(d, Save.level);
+                Prize prize = Daily.LoginPrize(d, Save.bestLevel);
                 bool past = d < day || (d == day && !ready);
                 bool current = d == day && ready;
                 Color color = current ? UIFactory.Gold : past ? new Color(0.75f, 0.9f, 0.75f) : new Color(0.9f, 0.92f, 0.96f);
@@ -321,7 +434,7 @@ namespace NumberRoad.UI
                 Label(cell.rectTransform, past ? "OK" : amount, 24, prize.Kind == PrizeKind.Gems ? UIFactory.Purple : UIFactory.GoldDark, TextAnchor.MiddleCenter,
                     new Vector2(0.5f, 0.5f), new Vector2(0f, -14f), new Vector2(108f, 80f));
             }
-            Prize todayPrize = Daily.LoginPrize(day, Save.level);
+            Prize todayPrize = Daily.LoginPrize(day, Save.bestLevel);
             Label(body, ready ? "TODAY: " + todayPrize.Label : "COME BACK TOMORROW FOR DAY " + (day % 7 + 1) + "!", 38, UIFactory.Ink,
                 TextAnchor.MiddleCenter, top, new Vector2(0f, -360f), new Vector2(820f, 60f));
             if (ready)
@@ -340,7 +453,7 @@ namespace NumberRoad.UI
         {
             RectTransform body = Open("LUCKY DRAW", new Vector2(900f, 1020f), null);
             int today = Daily.Today;
-            Prize[] prizes = Daily.LuckyPrizes(Save.level);
+            Prize[] prizes = Daily.LuckyPrizes(Save.bestLevel);
             int result = Daily.LuckyIndex(today, prizes.Length);
             bool ready = Daily.LuckyReady(Save, today);
             var top = new Vector2(0.5f, 1f);

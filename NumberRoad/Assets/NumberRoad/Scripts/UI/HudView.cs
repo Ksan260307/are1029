@@ -144,7 +144,7 @@ namespace NumberRoad.UI
             FitText(_bannerSub, 22);
 
             Image hint = UIFactory.Image(root, "Tip", new Color(0.03f, 0.06f, 0.16f, 0.75f), GameAssets.RoundedSprite);
-            UIFactory.Place(hint.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 400f), new Vector2(940f, 120f));
+            UIFactory.Place(hint.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-100f, 150f), new Vector2(760f, 120f));
             _hintGroup = hint.gameObject.AddComponent<CanvasGroup>();
             _hintGroup.blocksRaycasts = false;
             _hintGroup.alpha = 0f;
@@ -155,7 +155,7 @@ namespace NumberRoad.UI
             _hintText.horizontalOverflow = HorizontalWrapMode.Wrap;
 
             Image drag = UIFactory.Image(root, "DragHint", new Color(0f, 0f, 0f, 0.42f), GameAssets.RoundedSprite);
-            UIFactory.Place(drag.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-60f, 260f), new Vector2(640f, 100f));
+            UIFactory.Place(drag.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-50f, 290f), new Vector2(640f, 100f));
             _dragHint = drag.gameObject.AddComponent<CanvasGroup>();
             _dragHint.blocksRaycasts = false;
             Text dragText = UIFactory.Text(drag.rectTransform, "Text", "<   DRAG TO MOVE   >", 46, Color.white);

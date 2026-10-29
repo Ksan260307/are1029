@@ -100,7 +100,7 @@ namespace NumberRoad.Core
         public static bool ChallengeReady(SaveData save, int today) => save.lastChallengeDay != today;
 
         /// <summary>Today's challenge: a bit ahead of the player, with double hordes.</summary>
-        public static int ChallengeLevel(SaveData save) => save.level + 3;
+        public static int ChallengeLevel(SaveData save) => save.bestLevel + 3;
 
         public const int ChallengeGems = 5;
 
@@ -111,7 +111,7 @@ namespace NumberRoad.Core
             double seconds = nowUnix - save.lastSeenUnix;
             if (seconds < 600) return 0;
             double hours = Math.Min(8.0, seconds / 3600.0);
-            return (int)Math.Round(hours * (20 + save.level * 6) * save.IncomeMultiplier);
+            return (int)Math.Round(hours * (20 + save.bestLevel * 6) * save.IncomeMultiplier);
         }
 
         public static void Grant(SaveData save, Prize prize, UpgradeKind freeUpgrade)

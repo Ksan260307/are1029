@@ -11,6 +11,9 @@
 - 敵は **31 種類**（分裂するスライム、透けるゴースト、回復するシャーマン、矢を撃つ弓兵、逃げるゴールドゴブリン、木箱のふりをするミミック…）とボス 6 体。レベルが上がるたびに新しい敵が加わり、数は指数関数的に増える
 - 撃破を続けると COMBO、たまると必殺技 **VOLLEY**（前方に矢の雨）
 - 最後は敵城の前でボス戦。コインと宝石で 8 種類の強化、毎日のログインボーナス・くじ・デイリーチャレンジ、実績 30 個、兵舎と敵図鑑
+- **レベル選択**：タイトルの `<` `>` で一度到達したレベルを選び直せる（レベル番号をタップすると星つきの一覧）
+- **ランキング**：この端末でのベスト記録 10 件を、スコア・最大兵数・最高コンボの 3 種類で表示（スコアは撃破数・コンボ・兵数とクリア・星から計算）
+- **リセット**：設定画面の RESET PROGRESS から、確認のうえ最初からやり直せる（効果音・画質などの設定は残る）
 
 「もう 1 回だけ」と遊びたくなるように入れた 100 個の工夫は [ADDICTION_IMPROVEMENTS.md](ADDICTION_IMPROVEMENTS.md) にまとめています。
 
@@ -89,7 +92,7 @@ powershell -ExecutionPolicy Bypass -File tools/run_tests.ps1 -Only PlayMode
 
 | 種類 | 件数 | 場所 |
 | --- | ---: | --- |
-| Unity EditMode（単体） | 169 | `NumberRoad/Assets/NumberRoad/Tests/EditMode` |
+| Unity EditMode（単体） | 176 | `NumberRoad/Assets/NumberRoad/Tests/EditMode` |
 | Unity PlayMode（総合） | 2 | `NumberRoad/Assets/NumberRoad/Tests/PlayMode` |
 | Blender（単体） | 11 | `blender/tests` |
 | Python（単体） | 22 | `tools/tests` |
