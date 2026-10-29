@@ -26,9 +26,10 @@ function Run-Unity([string]$method, [string]$log, [string[]]$extra = @()) {
 }
 
 if ($Assets) {
-    Write-Host "== Blender でモデルとアイコンを生成"
+    Write-Host "== Blender でモデル・アイコン・立ち絵を生成"
     & $Blender -b --factory-startup --python-exit-code 1 --python (Join-Path $root "blender/build_models.py") '--' `
-        --preview (Join-Path $root "media/models_preview.jpg") --icons (Join-Path $project "Assets/NumberRoad/Art/Icons")
+        --preview (Join-Path $root "media/models_preview.jpg") --icons (Join-Path $project "Assets/NumberRoad/Art/Icons") `
+        --portraits (Join-Path $project "Assets/NumberRoad/Resources/Portraits")
     if ($LASTEXITCODE -ne 0) { throw "Blender が失敗しました" }
 }
 

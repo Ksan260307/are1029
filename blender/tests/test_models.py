@@ -16,7 +16,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 import build_models as kit  # noqa: E402
 
-CHARACTERS = ("soldier", "grunt", "brute", "boss")
+# every animated character: 20 ally classes, the enemies and the bosses
+CHARACTERS = tuple(kit.CHARACTERS)
+PART_NAMES = {"Body", "Main", "LegL", "LegR", "ArmL", "ArmR"}
 
 
 def build(name):
@@ -62,31 +64,44 @@ class ModelTests(unittest.TestCase):
                     self.assertEqual((col.domain, col.data_type), ("CORNER", "BYTE_COLOR"))
                     self.assertEqual([m.name for m in ob.data.materials], [kit.MATERIAL_NAME])
 
+    def test_there_are_20_allies_30_enemy_models_and_6_bosses(self):
+        self.assertEqual(len([n for n in CHARACTERS if n.startswith("u_")]), 20)
+        self.assertGreaterEqual(len([n for n in CHARACTERS if n.startswith("e_")]) + 2, 30)
+        self.assertEqual(len([n for n in CHARACTERS if n.startswith("b_")]) + 1, 6)
+
     def test_characters_have_the_parts_unity_animates(self):
         expected = {
-            "soldier": {"Body", "LegL", "LegR"},
+            "u_crossbow": {"Body", "LegL", "LegR"},
             "grunt": {"Body", "LegL", "LegR"},
             "brute": {"Body", "LegL", "LegR", "ArmL", "ArmR"},
             "boss": {"Body", "LegL", "LegR", "ArmL", "ArmR"},
         }
         for name, want in expected.items():
             self.assertEqual(set(parts(name)), want, name)
+        for name in CHARACTERS:
+            with self.subTest(model=name):
+                names = set(parts(name))
+                self.assertTrue(names & {"Body", "Main"}, f"{name} needs a body")
+                self.assertTrue(names <= PART_NAMES, f"{name}: {sorted(names - PART_NAMES)}")
+                self.assertEqual("LegL" in names, "LegR" in names, f"{name} legs come in pairs")
 
     def test_legs_pivot_at_the_hip_and_arms_at_the_shoulder(self):
         # 部位の原点が関節。Unity はそこを中心に回して歩かせる・こん棒を振る
         for name in CHARACTERS:
             p = parts(name)
             for side in ("LegL", "LegR"):
+                if side not in p:
+                    continue
                 lo, hi = local_z(p[side])
-                self.assertAlmostEqual(hi, 0.0, delta=0.06, msg=f"{name} {side}")
-                self.assertLess(lo, -0.3, f"{name} {side}")
-            for side in ("ArmL", "ArmR"):
-                if side in p:
+                self.assertAlmostEqual(hi, 0.0, delta=0.08, msg=f"{name} {side}")
+                self.assertLess(lo, -0.12, f"{name} {side}")
+            if name in ("brute", "boss"):
+                for side in ("ArmL", "ArmR"):
                     self.assertLess(local_z(p[side])[0], -0.6, f"{name} {side}")
 
     def test_characters_face_minus_y(self):
         # Blender の -Y（正面）が Unity の +Z になる。石弓・こん棒・顔は正面に出ている
-        lo, hi = bounds([parts("soldier")["Body"]])
+        lo, hi = bounds([parts("u_crossbow")["Body"]])
         self.assertLess(lo.y, -0.45, "石弓が正面に出ている")
         self.assertLess(hi.y, 0.25, "背中はマントの厚みだけ")
         lo, hi = bounds([parts("brute")["ArmR"]])
@@ -95,11 +110,19 @@ class ModelTests(unittest.TestCase):
         self.assertLess(lo.y, -0.3, "斧と盾が正面")
 
     def test_character_heights(self):
-        heights = {"soldier": (1.1, 1.35), "grunt": (1.15, 1.45), "brute": (2.3, 2.7), "boss": (2.4, 2.95)}
+        heights = {"u_crossbow": (1.1, 1.35), "grunt": (1.15, 1.45), "brute": (2.3, 2.7), "boss": (2.4, 2.95)}
         for name, (low, high) in heights.items():
             lo, hi = bounds(build(name))
             self.assertGreaterEqual(lo.z, -0.01, f"{name} の足元は地面")
             self.assertTrue(low <= hi.z - lo.z <= high, f"{name} height {hi.z - lo.z:.2f}")
+        for name in CHARACTERS:
+            lo, hi = bounds(build(name))
+            with self.subTest(model=name):
+                self.assertGreaterEqual(lo.z, -0.02, f"{name} の足元は地面")
+                limit = 4.2 if name.startswith("b_") or name == "boss" else 2.9
+                self.assertTrue(0.3 <= hi.z - lo.z <= limit, f"{name} height {hi.z - lo.z:.2f}")
+                # 道幅（8 m）からはみ出さない
+                self.assertLess(hi.x - lo.x, 5.5, f"{name} width {hi.x - lo.x:.2f}")
 
     def test_road_pieces_tile_seamlessly(self):
         lo, hi = bounds(build("road_tile"))

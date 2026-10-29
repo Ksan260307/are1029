@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace NumberRoad.Presentation
@@ -21,10 +22,13 @@ namespace NumberRoad.Presentation
         public static Mesh GroundQuad { get; private set; }
         public static Mesh Cube { get; private set; }
         public static Mesh Bolt { get; private set; }
+        public static Mesh Orb { get; private set; }
 
         public static Font Font { get; private set; }
         public static Sprite RoundedSprite { get; private set; }
         public static Sprite CircleSprite { get; private set; }
+        public static Sprite StarSprite { get; private set; }
+        public static Sprite GemSprite { get; private set; }
 
         static bool _initialized;
 
@@ -36,7 +40,8 @@ namespace NumberRoad.Presentation
             Toon = LoadMaterial("NR_Toon", "NumberRoad/Toon");
             Transparent = LoadMaterial("NR_Transparent", "NumberRoad/Transparent");
             Additive = LoadMaterial("NR_Additive", "NumberRoad/Additive");
-            Water = LoadMaterial("NR_Water", "NumberRoad/Water");
+            // a runtime copy: regions recolour the water, and in the editor that would be saved into the asset
+            Water = new Material(LoadMaterial("NR_Water", "NumberRoad/Water")) { name = "NR_Water (runtime)" };
 
             Shadow = new Material(Transparent) { name = "NR_Shadow", mainTexture = CreateBlobTexture(64) };
             Shadow.SetColor("_Color", new Color(0f, 0f, 0f, 0.32f));
@@ -47,12 +52,15 @@ namespace NumberRoad.Presentation
             GroundQuad = CreateQuad(true);
             Cube = CreateCube();
             Bolt = CreateBolt();
+            Orb = CreateOrb();
 
             Font = Resources.Load<Font>("Fonts/UIFont");
             if (Font == null) Font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
             RoundedSprite = CreateRoundedSprite(64, 24);
             CircleSprite = CreateRoundedSprite(64, 32);
+            StarSprite = CreatePolygonSprite("NR_Star", 96, 5, 0.42f);
+            GemSprite = CreatePolygonSprite("NR_Gem", 64, 4, 1f);
         }
 
         static Material LoadMaterial(string resource, string shaderName)
@@ -182,6 +190,45 @@ namespace NumberRoad.Presentation
             return mesh;
         }
 
+        /// <summary>Low-poly ball (octahedron subdivided once) for orbs, cannon balls and fireballs.</summary>
+        static Mesh CreateOrb()
+        {
+            var verts = new List<Vector3> { Vector3.up, Vector3.down, Vector3.left, Vector3.right, Vector3.forward, Vector3.back };
+            var tris = new List<int> { 0, 4, 3, 0, 3, 5, 0, 5, 2, 0, 2, 4, 1, 3, 4, 1, 5, 3, 1, 2, 5, 1, 4, 2 };
+            var mids = new Dictionary<long, int>();
+            int Mid(int a, int b)
+            {
+                long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                if (mids.TryGetValue(key, out int i)) return i;
+                verts.Add(((verts[a] + verts[b]) * 0.5f).normalized);
+                mids[key] = verts.Count - 1;
+                return verts.Count - 1;
+            }
+            var next = new List<int>();
+            for (int t = 0; t < tris.Count; t += 3)
+            {
+                int a = tris[t], b = tris[t + 1], c = tris[t + 2];
+                int ab = Mid(a, b), bc = Mid(b, c), ca = Mid(c, a);
+                next.AddRange(new[] { a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca });
+            }
+            var colors = new Color32[verts.Count];
+            var uvs = new Vector2[verts.Count];
+            for (int i = 0; i < verts.Count; i++)
+            {
+                verts[i] *= 0.5f;
+                colors[i] = White;
+                uvs[i] = new Vector2(0.5f, 0.5f);
+            }
+            var mesh = new Mesh { name = "NR_Orb" };
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(next, 0);
+            mesh.colors32 = colors;
+            mesh.uv = uvs;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         // --- Textures / sprites ------------------------------------------------------
 
         static Texture2D CreateBlobTexture(int size)
@@ -247,6 +294,57 @@ namespace NumberRoad.Presentation
             float b = Mathf.Min(radius + 2f, size / 2f - 1f);
             return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0,
                 SpriteMeshType.FullRect, new Vector4(b, b, b, b));
+        }
+
+        /// <summary>
+        /// A star (inner radius &lt; 1) or a regular polygon (inner = 1, e.g. the 4-sided gem), point up,
+        /// anti-aliased by 4x4 supersampling.
+        /// </summary>
+        static Sprite CreatePolygonSprite(string name, int size, int points, float inner)
+        {
+            int corners = inner < 1f ? points * 2 : points;
+            var poly = new Vector2[corners];
+            for (int i = 0; i < corners; i++)
+            {
+                float r = inner < 1f && i % 2 == 1 ? inner : 1f;
+                float a = Mathf.PI * 0.5f + i * Mathf.PI * 2f / corners;
+                poly[i] = new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * (r * 0.48f) + new Vector2(0.5f, 0.5f);
+            }
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { name = name, wrapMode = TextureWrapMode.Clamp };
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    int inside = 0;
+                    for (int sy = 0; sy < 4; sy++)
+                    {
+                        for (int sx = 0; sx < 4; sx++)
+                        {
+                            var p = new Vector2((x + (sx + 0.5f) / 4f) / size, (y + (sy + 0.5f) / 4f) / size);
+                            if (Inside(poly, p)) inside++;
+                        }
+                    }
+                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)(inside * 255 / 16));
+                }
+            }
+            tex.SetPixels32(pixels);
+            tex.Apply(false, true);
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+        }
+
+        static bool Inside(Vector2[] poly, Vector2 p)
+        {
+            bool inside = false;
+            for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+            {
+                if ((poly[i].y > p.y) != (poly[j].y > p.y) &&
+                    p.x < (poly[j].x - poly[i].x) * (p.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x)
+                {
+                    inside = !inside;
+                }
+            }
+            return inside;
         }
 
         /// <summary>Signed distance (pixels) to a rounded rectangle filling the texture; negative inside.</summary>

@@ -21,6 +21,8 @@ namespace NumberRoad.Presentation
         Vector3 _focus;
         float _lead = PlayLead;
         float _leadTarget = PlayLead;
+        float _crowd;
+        float _crowdTarget;
         float _distance;
         float _trauma;
         float _extraDistance;
@@ -52,6 +54,11 @@ namespace NumberRoad.Presentation
 
         public void SetBossView(bool boss) => _extraTarget = boss ? 3.5f : 0f;
 
+        /// <summary>Pulls back a little as the army grows so the whole crowd stays in view.</summary>
+        public void SetCrowdZoom(float metres) => _crowdTarget = metres;
+
+        public void SetBackground(Color color) => Camera.backgroundColor = color;
+
         /// <summary>Title screen centres the squad (the menu covers the bottom); play looks further ahead.</summary>
         public void SetTitleView(bool title) => _leadTarget = title ? TitleLead : PlayLead;
 
@@ -74,6 +81,7 @@ namespace NumberRoad.Presentation
             _focus = Vector3.Lerp(_focus, target, k);
             _distance = Mathf.Lerp(_distance, DistanceForAspect(Camera.aspect), k);
             _extraDistance = Mathf.Lerp(_extraDistance, _extraTarget, 1f - Mathf.Exp(-2f * dt));
+            _crowd = Mathf.Lerp(_crowd, _crowdTarget, 1f - Mathf.Exp(-1.5f * dt));
             _trauma = Mathf.Max(0f, _trauma - dt * 1.6f);
             Place(Time.unscaledTime);
         }
@@ -83,7 +91,7 @@ namespace NumberRoad.Presentation
         void Place(float time)
         {
             Quaternion rotation = Quaternion.Euler(Pitch, 0f, 0f);
-            float distance = _distance + _extraDistance;
+            float distance = _distance + _extraDistance + _crowd;
             Vector3 position = _focus - rotation * Vector3.forward * distance;
             float shake = _trauma * _trauma;
             if (shake > 0f)

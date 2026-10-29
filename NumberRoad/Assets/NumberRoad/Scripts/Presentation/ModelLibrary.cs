@@ -61,22 +61,6 @@ namespace NumberRoad.Presentation
             root.transform.SetParent(parent, false);
             switch (name)
             {
-                case "soldier":
-                    Box(root, name + "_Body", new Vector3(0, 0.75f, 0), new Vector3(0.38f, 0.6f, 0.26f), new Color(0.2f, 0.45f, 0.95f));
-                    Box(root, name + "_LegL", new Vector3(0.09f, 0.2f, 0), new Vector3(0.13f, 0.4f, 0.15f), new Color(0.12f, 0.25f, 0.6f));
-                    Box(root, name + "_LegR", new Vector3(-0.09f, 0.2f, 0), new Vector3(0.13f, 0.4f, 0.15f), new Color(0.12f, 0.25f, 0.6f));
-                    break;
-                case "grunt":
-                    Box(root, name + "_Body", new Vector3(0, 0.8f, 0), new Vector3(0.42f, 0.7f, 0.3f), new Color(0.9f, 0.22f, 0.18f));
-                    Box(root, name + "_LegL", new Vector3(0.1f, 0.22f, 0), new Vector3(0.14f, 0.44f, 0.16f), new Color(0.3f, 0.2f, 0.12f));
-                    Box(root, name + "_LegR", new Vector3(-0.1f, 0.22f, 0), new Vector3(0.14f, 0.44f, 0.16f), new Color(0.3f, 0.2f, 0.12f));
-                    break;
-                case "brute":
-                case "boss":
-                    Box(root, name + "_Body", new Vector3(0, 1.6f, 0), new Vector3(1.1f, 1.5f, 0.8f), name == "boss" ? new Color(0.55f, 0.7f, 0.35f) : new Color(0.9f, 0.6f, 0.45f));
-                    Box(root, name + "_LegL", new Vector3(0.28f, 0.42f, 0), new Vector3(0.3f, 0.85f, 0.32f), new Color(0.4f, 0.15f, 0.1f));
-                    Box(root, name + "_LegR", new Vector3(-0.28f, 0.42f, 0), new Vector3(0.3f, 0.85f, 0.32f), new Color(0.4f, 0.15f, 0.1f));
-                    break;
                 case "gate_pillar":
                     Box(root, name, new Vector3(0, 1.35f, 0), new Vector3(0.34f, 2.7f, 0.34f), new Color(0.95f, 0.94f, 0.9f));
                     break;

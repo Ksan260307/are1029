@@ -15,6 +15,8 @@ namespace NumberRoad.UI
         public static readonly Color GoldDark = new Color32(196, 120, 20, 255);
         public static readonly Color Red = new Color32(226, 56, 47, 255);
         public static readonly Color Green = new Color32(62, 190, 96, 255);
+        public static readonly Color Purple = new Color32(150, 84, 230, 255);
+        public static readonly Color Cyan = new Color32(90, 205, 255, 255);
         public static readonly Color Gray = new Color32(150, 158, 172, 255);
         public static readonly Color Ink = new Color32(29, 36, 51, 255);
         public static readonly Color Card = new Color(1f, 1f, 1f, 0.95f);
@@ -146,6 +148,107 @@ namespace NumberRoad.UI
             face.color = color;
             Transform b = button.transform.Find("Base");
             if (b != null) b.GetComponent<Image>().color = Color.Lerp(color, Color.black, 0.35f);
+        }
+
+        /// <summary>A cyan gem (second currency).</summary>
+        public static RectTransform Gem(Transform parent, float size)
+        {
+            Image outer = Image(parent, "Gem", new Color32(30, 110, 170, 255), GameAssets.GemSprite);
+            outer.rectTransform.sizeDelta = new Vector2(size, size);
+            Image inner = Image(outer.rectTransform, "Inner", Cyan, GameAssets.GemSprite);
+            Fill(inner.rectTransform);
+            inner.rectTransform.offsetMin = new Vector2(size * 0.14f, size * 0.14f);
+            inner.rectTransform.offsetMax = new Vector2(-size * 0.14f, -size * 0.14f);
+            Image shine = Image(outer.rectTransform, "Shine", new Color(1f, 1f, 1f, 0.6f), GameAssets.GemSprite);
+            Place(shine.rectTransform, new Vector2(0.38f, 0.62f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(size * 0.22f, size * 0.22f));
+            return outer.rectTransform;
+        }
+
+        public static Image Star(Transform parent, float size, bool on)
+        {
+            Image star = Image(parent, "Star", on ? Gold : new Color(0f, 0f, 0f, 0.25f), GameAssets.StarSprite);
+            star.rectTransform.sizeDelta = new Vector2(size, size);
+            return star;
+        }
+
+        /// <summary>Small red counter in the top-right corner of a button (hidden at 0).</summary>
+        public static Text Badge(RectTransform owner, out GameObject root)
+        {
+            Image dot = Image(owner, "Badge", Red, GameAssets.CircleSprite);
+            Place(dot.rectTransform, new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(-12f, -8f), new Vector2(56f, 56f));
+            var outline = dot.gameObject.AddComponent<Outline>();
+            outline.effectColor = Color.white;
+            outline.effectDistance = new Vector2(3f, -3f);
+            Text text = Text(dot.rectTransform, "Count", "", 32, Color.white);
+            Fill(text.rectTransform);
+            root = dot.gameObject;
+            return text;
+        }
+
+        /// <summary>
+        /// A scrolling list: returns the content rect, which grows with its children (vertical or horizontal layout).
+        /// </summary>
+        public static RectTransform Scroll(RectTransform parent, string name, bool horizontal, float spacing, out ScrollRect scroll)
+        {
+            Image area = Image(parent, name, new Color(0f, 0f, 0f, 0f), null, true);
+            scroll = area.gameObject.AddComponent<ScrollRect>();
+            scroll.horizontal = horizontal;
+            scroll.vertical = !horizontal;
+            scroll.movementType = ScrollRect.MovementType.Elastic;
+            scroll.scrollSensitivity = 40f;
+            scroll.inertia = true;
+            scroll.decelerationRate = 0.12f;
+
+            RectTransform viewport = Fill(Rect(area.rectTransform, "Viewport"));
+            viewport.gameObject.AddComponent<RectMask2D>();
+            scroll.viewport = viewport;
+
+            RectTransform content = Rect(viewport, "Content");
+            if (horizontal)
+            {
+                content.anchorMin = new Vector2(0f, 0f);
+                content.anchorMax = new Vector2(0f, 1f);
+                content.pivot = new Vector2(0f, 0.5f);
+                var layout = content.gameObject.AddComponent<HorizontalLayoutGroup>();
+                layout.spacing = spacing;
+                layout.childAlignment = TextAnchor.MiddleLeft;
+                layout.childControlWidth = false;
+                layout.childControlHeight = false;
+                layout.childForceExpandWidth = false;
+                layout.childForceExpandHeight = false;
+                layout.padding = new RectOffset(12, 12, 0, 0);
+                content.gameObject.AddComponent<ContentSizeFitter>().horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            }
+            else
+            {
+                content.anchorMin = new Vector2(0f, 1f);
+                content.anchorMax = new Vector2(1f, 1f);
+                content.pivot = new Vector2(0.5f, 1f);
+                var layout = content.gameObject.AddComponent<VerticalLayoutGroup>();
+                layout.spacing = spacing;
+                layout.childAlignment = TextAnchor.UpperCenter;
+                layout.childControlWidth = false;
+                layout.childControlHeight = false;
+                layout.childForceExpandWidth = false;
+                layout.childForceExpandHeight = false;
+                layout.padding = new RectOffset(0, 0, 10, 10);
+                content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            }
+            content.offsetMin = Vector2.zero;
+            content.offsetMax = Vector2.zero;
+            scroll.content = content;
+            return content;
+        }
+
+        /// <summary>A fixed-size child for a layout list.</summary>
+        public static RectTransform Item(RectTransform list, string name, Vector2 size)
+        {
+            RectTransform rt = Rect(list, name);
+            rt.sizeDelta = size;
+            var element = rt.gameObject.AddComponent<LayoutElement>();
+            element.preferredWidth = size.x;
+            element.preferredHeight = size.y;
+            return rt;
         }
 
         /// <summary>Gold coin made of two circles.</summary>

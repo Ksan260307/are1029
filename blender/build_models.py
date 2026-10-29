@@ -10,6 +10,7 @@ Options
                      (default: NumberRoad/Assets/NumberRoad/Resources/Models)
     --icons DIR      also render the app / web icons into DIR
     --preview FILE   also render a contact sheet of all models (.png or .jpg)
+    --portraits DIR  also render 128px portraits of every character (UI)
     --blend FILE     also save the generated scene as .blend for hand editing
     --only a,b,c     build only the listed models
 
@@ -91,12 +92,20 @@ def shade(color, amount):
 # ---------------------------------------------------------------------------
 
 class Part:
-    """Accumulates coloured primitives into one bmesh, then becomes an object."""
+    """Accumulates coloured primitives into one bmesh, then becomes an object.
 
-    def __init__(self, name):
+    `k` scales every position and size, so a character authored at the standard size
+    (about 1.2 m) can be built bigger or smaller with the same code.
+    """
+
+    def __init__(self, name, k=1.0):
         self.name = name
+        self.k = k
         self.bm = bmesh.new()
         self.layer = self.bm.loops.layers.color.new("Col")
+
+    def _v(self, v):
+        return tuple(c * self.k for c in v)
 
     @staticmethod
     def _matrix(loc, rot, scale):
@@ -113,33 +122,34 @@ class Part:
         return verts
 
     def box(self, loc, size, color, rot=(0, 0, 0)):
-        verts = bmesh.ops.create_cube(self.bm, size=1.0, matrix=self._matrix(loc, rot, size))["verts"]
+        verts = bmesh.ops.create_cube(self.bm, size=1.0, matrix=self._matrix(self._v(loc), rot, self._v(size)))["verts"]
         return self._paint(verts, color)
 
     def cyl(self, loc, radius, depth, color, seg=8, radius2=None, rot=(0, 0, 0), scale=(1, 1, 1)):
+        k = self.k
         verts = bmesh.ops.create_cone(
             self.bm, cap_ends=True, cap_tris=False, segments=seg,
-            radius1=radius, radius2=radius if radius2 is None else radius2,
-            depth=depth, matrix=self._matrix(loc, rot, scale))["verts"]
+            radius1=radius * k, radius2=(radius if radius2 is None else radius2) * k,
+            depth=depth * k, matrix=self._matrix(self._v(loc), rot, scale))["verts"]
         return self._paint(verts, color)
 
     def sphere(self, loc, radius, color, seg=8, rings=6, scale=(1, 1, 1), rot=(0, 0, 0)):
         verts = bmesh.ops.create_uvsphere(
-            self.bm, u_segments=seg, v_segments=rings, radius=radius,
-            matrix=self._matrix(loc, rot, scale))["verts"]
+            self.bm, u_segments=seg, v_segments=rings, radius=radius * self.k,
+            matrix=self._matrix(self._v(loc), rot, scale))["verts"]
         return self._paint(verts, color)
 
     def ico(self, loc, radius, color, subdiv=1, scale=(1, 1, 1), rot=(0, 0, 0), jitter=0.0, rng=None):
         verts = bmesh.ops.create_icosphere(
-            self.bm, subdivisions=subdiv, radius=radius,
-            matrix=self._matrix(loc, rot, scale))["verts"]
+            self.bm, subdivisions=subdiv, radius=radius * self.k,
+            matrix=self._matrix(self._v(loc), rot, scale))["verts"]
         if jitter and rng:
             for v in verts:
-                v.co += Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1))) * jitter
+                v.co += Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1))) * jitter * self.k
         return self._paint(verts, color)
 
     def build(self, ctx, pivot=(0, 0, 0)):
-        pivot = Vector(pivot)
+        pivot = Vector(self._v(pivot))
         bmesh.ops.translate(self.bm, vec=-pivot, verts=self.bm.verts)
         bmesh.ops.recalc_face_normals(self.bm, faces=self.bm.faces)
         mesh = bpy.data.meshes.new(self.name)
@@ -164,8 +174,8 @@ class ModelContext:
         bpy.context.scene.collection.children.link(self.collection)
         self.objects = []
 
-    def part(self, suffix):
-        return Part(f"{self.name}_{suffix}")
+    def part(self, suffix, k=1.0):
+        return Part(f"{self.name}_{suffix}", k)
 
 
 def mirror_x(loc):
@@ -513,7 +523,6 @@ def build_castle_gate(ctx):
 
 
 MODELS = {
-    "soldier": build_soldier,
     "grunt": build_grunt,
     "brute": build_brute,
     "boss": build_boss,
@@ -528,6 +537,14 @@ MODELS = {
     "tower_red": build_tower_red,
     "castle_gate": build_castle_gate,
 }
+
+# allies, enemies and bosses live in characters.py (it builds on the helpers above)
+sys.path.insert(0, HERE)
+import characters  # noqa: E402
+
+MODELS.update(characters.models(sys.modules[__name__]))
+CHARACTER_PREFIXES = ("u_", "e_", "b_")
+CHARACTERS = [n for n in MODELS if n.startswith(CHARACTER_PREFIXES) or n in ("grunt", "brute", "boss")]
 
 
 # ---------------------------------------------------------------------------
@@ -647,7 +664,7 @@ def render(scene, path, engines=("BLENDER_EEVEE", "BLENDER_WORKBENCH"), **kw):
 def render_preview(built, path):
     scene = bpy.context.scene
     names = list(built.keys())
-    cols = 5
+    cols = 11
     cell = 3.6
     for index, name in enumerate(names):
         objects = built[name]
@@ -671,7 +688,31 @@ def render_preview(built, path):
     cam.location = center + Vector((-6.0, -14.0, 9.0))
     look_at(cam, center)
     add_sun(scene)
-    render(scene, path, width=1600, height=int(1600 * 0.62), sky=hexcol("#9fd4ff"))
+    render(scene, path, width=2000, height=int(2000 * 0.62), sky=hexcol("#9fd4ff"))
+
+
+def render_portraits(out_dir):
+    """128 px transparent portraits of every character, framed on the face side, for the UI."""
+    os.makedirs(out_dir, exist_ok=True)
+    for name in CHARACTERS:
+        reset_scene()
+        scene = bpy.context.scene
+        ctx = ModelContext(name, make_material())
+        MODELS[name](ctx)
+        bpy.context.view_layer.update()
+        lo, hi = model_bounds(ctx.objects)
+        center = (lo + hi) / 2
+        size = max(hi.x - lo.x, hi.z - lo.z, (hi.y - lo.y) * 0.7)
+        cam = bpy.data.objects.new("PortraitCam", bpy.data.cameras.new("PortraitCam"))
+        cam.data.type = "ORTHO"
+        cam.data.ortho_scale = size * 1.18
+        scene.collection.objects.link(cam)
+        scene.camera = cam
+        cam.location = center + Vector((-0.35, -2.4, 0.9)) * max(1.0, size)
+        look_at(cam, center)
+        add_sun(scene, rot=(0.8, 0.1, -0.7), energy=2.8)
+        scene.render.film_transparent = True
+        render(scene, os.path.join(out_dir, f"{name}.png"), width=128, height=128, sky=hexcol("#ffffff"))
 
 
 def text_object(name, body, size, color, extrude, offset, location, material):
@@ -706,7 +747,7 @@ def render_icons(out_dir):
     material = make_material()
     scene = bpy.context.scene
     built = {}
-    for name in ("soldier", "gate_pillar", "gate_beam", "road_tile", "grunt"):
+    for name in ("u_crossbow", "gate_pillar", "gate_beam", "road_tile", "grunt"):
         ctx = ModelContext(name, material)
         MODELS[name](ctx)
         built[name] = ctx.objects
@@ -718,9 +759,9 @@ def render_icons(out_dir):
             obj.scale = Vector((scale, scale, scale))
 
     place(built["road_tile"], (0, 2.0, 0))
-    place(built["soldier"], (0, -1.6, 0), scale=1.25)
+    place(built["u_crossbow"], (0, -1.6, 0), scale=1.25)
     for loc in ((-1.05, -0.75, 0), (1.05, -0.75, 0), (-0.55, 0.2, 0), (0.55, 0.2, 0)):
-        ctx = ModelContext("soldier", material)
+        ctx = ModelContext("u_crossbow", material)
         build_soldier(ctx)
         place(ctx.objects, loc, scale=1.05)
     for loc in ((-0.7, 5.2, 0), (0.6, 5.6, 0), (1.6, 5.0, 0), (-1.7, 5.4, 0)):
@@ -771,6 +812,7 @@ def parse_args():
     parser.add_argument("--out", default=DEFAULT_OUT)
     parser.add_argument("--icons", default=None)
     parser.add_argument("--preview", default=None)
+    parser.add_argument("--portraits", default=None)
     parser.add_argument("--blend", default=None)
     parser.add_argument("--only", default=None)
     return parser.parse_args(argv)
@@ -802,6 +844,8 @@ def main():
         render_preview(built, os.path.abspath(args.preview))
     if args.icons:
         render_icons(os.path.abspath(args.icons))
+    if args.portraits:
+        render_portraits(os.path.abspath(args.portraits))
     print("[build_models] done")
 
 

@@ -21,6 +21,7 @@ namespace NumberRoad.Presentation
         sealed class Segment
         {
             public GameObject Root;
+            public Renderer[] Stone;
             public GameObject TowerBlue;
             public GameObject TowerRed;
             public GameObject BannerLeft;
@@ -30,34 +31,54 @@ namespace NumberRoad.Presentation
         }
 
         readonly List<Segment> _segments = new List<Segment>();
+        // created in Init: Unity does not allow property blocks in MonoBehaviour field initializers
+        MaterialPropertyBlock _roadBlock;
+        MaterialPropertyBlock _wallBlock;
         Transform _water;
         GameObject _castle;
         float _levelLength = 200f;
 
+        public Biome Biome { get; private set; } = Biomes.All[0];
+        public Color Sky => Biome.Sky;
+
         public void Init()
         {
-            ApplyEnvironment();
+            _roadBlock = new MaterialPropertyBlock();
+            _wallBlock = new MaterialPropertyBlock();
             for (int i = 0; i < SegmentCount; i++) _segments.Add(CreateSegment(i));
             _water = CreateWater().transform;
             _castle = ModelLibrary.Spawn("castle_gate", transform, Vector3.zero);
             _castle.name = "EnemyCastle";
+            ApplyBiome(Biomes.All[0]);
         }
 
-        public static void ApplyEnvironment()
+        /// <summary>Region palette: light, ambient, fog/sky, water and stone tints (shaders read the globals).</summary>
+        public void ApplyBiome(Biome biome)
         {
+            Biome = biome;
             Shader.SetGlobalVector("_NR_LightDir", new Vector3(-0.35f, 0.85f, -0.4f).normalized);
-            // tuned so the light paving reads as warm stone rather than clipping to white
-            Shader.SetGlobalColor("_NR_LightColor", new Color(0.58f, 0.56f, 0.52f));
-            Shader.SetGlobalColor("_NR_SkyAmbient", new Color(0.44f, 0.48f, 0.56f));
-            Shader.SetGlobalColor("_NR_GroundAmbient", new Color(0.3f, 0.28f, 0.28f));
-            Shader.SetGlobalColor("_NR_FogColor", SkyColor);
+            Shader.SetGlobalColor("_NR_LightColor", biome.Light);
+            Shader.SetGlobalColor("_NR_SkyAmbient", biome.SkyAmbient);
+            Shader.SetGlobalColor("_NR_GroundAmbient", biome.GroundAmbient);
+            Shader.SetGlobalColor("_NR_FogColor", biome.Sky);
             const float fogStart = 40f, fogEnd = 100f;
             Shader.SetGlobalVector("_NR_FogParams", new Vector4(fogStart, 1f / (fogEnd - fogStart), 0f, 0f));
+            Material water = GameAssets.Water;
+            water.SetColor("_Deep", biome.WaterDeep);
+            water.SetColor("_Shallow", biome.WaterShallow);
+            water.SetColor("_Highlight", biome.WaterHighlight);
+            _roadBlock.SetColor("_Color", biome.Road);
+            _wallBlock.SetColor("_Color", biome.Wall);
+            foreach (Segment s in _segments)
+            {
+                for (int i = 0; i < s.Stone.Length; i++) s.Stone[i].SetPropertyBlock(i == 0 ? _roadBlock : _wallBlock);
+            }
         }
 
         /// <summary>Prepares the scenery for a new level (castle position, segment reset).</summary>
         public void Build(LevelDefinition def)
         {
+            ApplyBiome(Biomes.All[def.biome % Biomes.All.Length]);
             _levelLength = def.length;
             _castle.transform.localPosition = new Vector3(0f, 0f, def.length + Balance.BossArenaDistance + 9f);
             foreach (Segment s in _segments) s.Index = int.MinValue;
@@ -95,9 +116,15 @@ namespace NumberRoad.Presentation
             var root = new GameObject("Segment");
             root.transform.SetParent(transform, false);
             var s = new Segment { Root = root };
-            ModelLibrary.Spawn("road_tile", root.transform, Vector3.zero);
-            ModelLibrary.Spawn("wall", root.transform, new Vector3(-4.25f, 0f, 0f));
-            ModelLibrary.Spawn("wall", root.transform, new Vector3(4.25f, 0f, 0f));
+            GameObject road = ModelLibrary.Spawn("road_tile", root.transform, Vector3.zero);
+            GameObject wallL = ModelLibrary.Spawn("wall", root.transform, new Vector3(-4.25f, 0f, 0f));
+            GameObject wallR = ModelLibrary.Spawn("wall", root.transform, new Vector3(4.25f, 0f, 0f));
+            s.Stone = new[]
+            {
+                road.GetComponentInChildren<Renderer>(),
+                wallL.GetComponentInChildren<Renderer>(),
+                wallR.GetComponentInChildren<Renderer>(),
+            };
             s.TowerBlue = ModelLibrary.Spawn("tower_blue", root.transform, Vector3.zero);
             s.TowerRed = ModelLibrary.Spawn("tower_red", root.transform, Vector3.zero);
             s.BannerLeft = ModelLibrary.Spawn("banner", root.transform, new Vector3(-4.25f, 0.67f, -2.5f), 0.9f);

@@ -2,51 +2,6 @@ using UnityEngine;
 
 namespace NumberRoad.Core
 {
-    public enum EnemyKind
-    {
-        Grunt,
-        Runner,
-        Brute,
-        Boss,
-    }
-
-    /// <summary>Static description of an enemy type. Hit points come from the level generator.</summary>
-    public readonly struct EnemyArchetype
-    {
-        public readonly float Speed;
-        public readonly float Radius;
-        public readonly float Scale;
-        public readonly bool Melee;
-        public readonly float AttackInterval;
-        public readonly int Coins;
-        public readonly string Model;
-
-        public EnemyArchetype(float speed, float radius, float scale, bool melee, float attackInterval, int coins, string model)
-        {
-            Speed = speed;
-            Radius = radius;
-            Scale = scale;
-            Melee = melee;
-            AttackInterval = attackInterval;
-            Coins = coins;
-            Model = model;
-        }
-    }
-
-    public readonly struct FirePlan
-    {
-        public readonly float Interval;
-        public readonly float Damage;
-        public readonly int Shots;
-
-        public FirePlan(float interval, float damage, int shots)
-        {
-            Interval = interval;
-            Damage = damage;
-            Shots = shots;
-        }
-    }
-
     /// <summary>Every gameplay tuning number lives here so balancing is a one-file job.</summary>
     public static class Balance
     {
@@ -61,97 +16,110 @@ namespace NumberRoad.Core
         public const float BossArenaDistance = 24f;
 
         // --- Squad -----------------------------------------------------------
-        public const int MaxSquad = 9999;
-        public const int MaxVisibleSoldiers = 40;
-        public const float FormationSpacing = 0.38f;
-        public const float SoldierScale = 0.9f;
+        public const int MaxSquad = 999999;
+        public const int MaxVisibleSoldiers = 80;
+        public const int MaxAliveEnemies = 3000;
+        public const int MaxHordeWave = 1400;
+
+        /// <summary>Gap between drawn soldiers: roomy for a few, tightly packed for a big crowd.</summary>
+        public static float FormationSpacing(int visible) => Mathf.Lerp(0.38f, 0.27f, Mathf.InverseLerp(10f, MaxVisibleSoldiers, visible));
+
+        public static float SoldierScale(int visible) => Mathf.Lerp(0.9f, 0.78f, Mathf.InverseLerp(20f, MaxVisibleSoldiers, visible));
 
         // --- Weapons ---------------------------------------------------------
-        public const float BaseFireRate = 2.0f;
-        public const float BaseDamage = 1f;
         public const float BulletSpeed = 28f;
-        public const float BulletRange = 27f;
-        public const float MaxBulletsPerSecond = 110f;
+        public const float MaxBulletsPerSecond = 240f;
         public const int MaxMultiShot = 5;
         public const float MultiShotBonus = 0.55f;
         public const float MultiShotSpreadDegrees = 7f;
         public const float FireRateStep = 0.25f;
         public const float DamageStep = 0.3f;
-
-        // --- Economy ---------------------------------------------------------
-        public const int CrateCoins = 3;
-
-        public static EnemyArchetype Archetype(EnemyKind kind)
-        {
-            switch (kind)
-            {
-                case EnemyKind.Runner: return new EnemyArchetype(4.2f, 0.28f, 0.68f, false, 0f, 1, "grunt");
-                case EnemyKind.Brute: return new EnemyArchetype(1.5f, 0.85f, 1.0f, true, 1.25f, 8, "brute");
-                case EnemyKind.Boss: return new EnemyArchetype(0.95f, 1.45f, 1.75f, true, 1.6f, 30, "boss");
-                default: return new EnemyArchetype(2.3f, 0.32f, 0.82f, false, 0f, 1, "grunt");
-            }
-        }
+        public const float BaseCrit = 0.05f;
+        public const float CritMultiplier = 2f;
 
         /// <summary>Total extra damage factor for N bullets per shot (1 bullet = 1.0).</summary>
         public static float MultiShotFactor(int bullets) => 1f + MultiShotBonus * (Mathf.Clamp(bullets, 1, MaxMultiShot) - 1);
 
-        /// <summary>Damage per second of a whole squad. The bullet system distributes exactly this.</summary>
-        public static float SquadDps(float count, WeaponStats weapon)
-        {
-            return count * BaseFireRate * weapon.fireRateMul * BaseDamage * weapon.damageMul * MultiShotFactor(weapon.multiShot);
-        }
+        // --- Enemies ---------------------------------------------------------
+
+        /// <summary>Enemies in one horde wave: exponential in the level (18 at Lv1, ~490 at Lv20, capped from Lv26).</summary>
+        public static int HordeSize(int level) => Mathf.RoundToInt(Mathf.Min(MaxHordeWave, 18f * Mathf.Pow(1.19f, Mathf.Clamp(level, 1, 400) - 1)));
 
         /// <summary>
-        /// How the visible soldiers fire: each fires every <see cref="FirePlan.Interval"/> seconds,
-        /// <see cref="FirePlan.Shots"/> bullets at a time. Bullet count is capped for performance and
-        /// damage per bullet scaled so the total always equals <see cref="SquadDps"/>.
+        /// Soldiers one enemy knocks out when it reaches a big army: armies grow into the hundreds of thousands
+        /// while a wave is capped, so each enemy is worth more as the squad grows.
         /// </summary>
-        public static FirePlan PlanFire(int count, int visible, WeaponStats weapon)
-        {
-            visible = Mathf.Max(1, visible);
-            float rate = BaseFireRate * weapon.fireRateMul;
-            int shots = Mathf.Clamp(weapon.multiShot, 1, MaxMultiShot);
-            float throttle = Mathf.Max(1f, visible * rate * shots / MaxBulletsPerSecond);
-            float damage = BaseDamage * weapon.damageMul * (count / (float)visible) * (MultiShotFactor(shots) / shots) * throttle;
-            return new FirePlan(throttle / rate, damage, shots);
-        }
+        public static int ContactWeight(float squad) => Mathf.Max(1, Mathf.RoundToInt(squad / 400f));
 
-        /// <summary>Bullets per second the squad actually emits (visual count, capped).</summary>
-        public static float BulletsPerSecond(int count, WeaponStats weapon)
-        {
-            int visible = Mathf.Min(count, MaxVisibleSoldiers);
-            return Mathf.Min(MaxBulletsPerSecond, visible * BaseFireRate * weapon.fireRateMul * weapon.multiShot);
-        }
+        /// <summary>0.6 at level 1, approaching 1.0. Scales enemy toughness relative to the reference player.</summary>
+        public static float Difficulty(int level) => 0.6f + 0.4f * (1f - Mathf.Exp(-(Mathf.Max(1, level) - 1) / 8f));
 
-        /// <summary>0.6 at level 1, approaching 1.0. Scales enemy HP relative to the reference player.</summary>
-        public static float Difficulty(int level)
-        {
-            return 0.6f + 0.4f * (1f - Mathf.Exp(-(Mathf.Max(1, level) - 1) / 8f));
-        }
+        public const float EliteHp = 5f;
+        public const float EliteScale = 1.3f;
+        public const int EliteCoins = 10;
+        public const float EliteGemChance = 0.25f;
+
+        // --- Combo / skill -----------------------------------------------------
+        public const float ComboWindow = 1.5f;
+
+        /// <summary>Coin multiplier from the kill combo: +1% per kill, up to x3.</summary>
+        public static float ComboMultiplier(int combo) => 1f + Mathf.Min(combo, 200) / 100f;
+
+        public static int SkillCharge(int level, int skillUpgrade) => Mathf.RoundToInt((40 + 6 * Mathf.Max(1, level)) * Mathf.Pow(0.93f, skillUpgrade));
+
+        /// <summary>Seconds of full squad damage the VOLLEY deals to everything in front.</summary>
+        public static float SkillPower(int skillUpgrade) => 4f + 0.8f * skillUpgrade;
 
         // --- Meta upgrades (bought with coins on the title screen) -------------
-        public static int StartSquad(float upgradeLevel) => 1 + Mathf.FloorToInt(upgradeLevel);
+        /// <summary>Soldiers at the start of a run: three, so a missed strip early on is not an instant loss.</summary>
+        public static int StartSquad(float upgradeLevel) => 3 + Mathf.FloorToInt(upgradeLevel);
         public static float PowerMultiplier(float upgradeLevel) => 1f + 0.15f * upgradeLevel;
         public static float RateMultiplier(float upgradeLevel) => 1f + 0.08f * upgradeLevel;
         public static float IncomeMultiplier(float upgradeLevel) => 1f + 0.2f * upgradeLevel;
+        public static float CritChance(int upgradeLevel) => Mathf.Min(0.6f, BaseCrit + 0.02f * upgradeLevel);
+        public static float GuardBonus(int upgradeLevel) => Mathf.Min(0.4f, 0.03f * upgradeLevel);
+        public static float RecruitBonus(int upgradeLevel) => 1f + 0.08f * upgradeLevel;
 
         public static int UpgradeCost(int currentLevel)
         {
             float raw = 40f * Mathf.Pow(1.35f, Mathf.Max(0, currentLevel));
+            if (raw > 1e9f) return 1000000000;
             return Mathf.Max(5, Mathf.RoundToInt(raw / 5f) * 5);
         }
 
+        // --- Rewards -----------------------------------------------------------
+        public const int CrateCoins = 3;
+        /// <summary>Bonus for picking the best gate of a row.</summary>
+        public static int PerfectCoins(int level) => 4 + Mathf.Max(1, level);
+        /// <summary>Bonus for the n-th good gate in a row (n >= 2).</summary>
+        public static int ChainCoins(int chain, int level) => (chain - 1) * (2 + Mathf.Max(1, level) / 3);
         public static int VictoryCoins(int level) => 30 + Mathf.Max(1, level) * 8;
         public static int BossCoins(int level) => 30 + Mathf.Max(1, level) * 5;
+        public const int ReviveGems = 8;
+        public static int ReviveCoins(int level) => 100 * Mathf.Max(1, level);
+        public const int CastleGems = 10;
+        public const float GoldRushCoins = 1.5f;
 
-        /// <summary>Rounds to "game-looking" numbers: exact below 20, then multiples of 5 / 10.</summary>
+        /// <summary>1-3 stars from the share of the best squad size that survived.</summary>
+        public static int Stars(int survivors, int peak)
+        {
+            if (peak <= 0 || survivors <= 0) return 0;
+            float share = survivors / (float)peak;
+            if (share >= 0.6f) return 3;
+            if (share >= 0.3f) return 2;
+            return 1;
+        }
+
+        /// <summary>Rounds to "game-looking" numbers: exact below 20, then multiples of 5 / 10 / ...</summary>
         public static int Nice(float value)
         {
             float abs = Mathf.Abs(value);
             int sign = value < 0 ? -1 : 1;
             if (abs < 20f) return sign * Mathf.Max(1, Mathf.RoundToInt(abs));
             if (abs < 200f) return sign * Mathf.RoundToInt(abs / 5f) * 5;
-            return sign * Mathf.RoundToInt(abs / 10f) * 10;
+            if (abs < 2000f) return sign * Mathf.RoundToInt(abs / 10f) * 10;
+            if (abs < 20000f) return sign * Mathf.RoundToInt(abs / 100f) * 100;
+            return sign * Mathf.Min(MaxSquad, Mathf.RoundToInt(abs / 1000f) * 1000);
         }
     }
 }

@@ -4,9 +4,9 @@ using UnityEngine;
 namespace NumberRoad.Gameplay
 {
     /// <summary>
-    /// Simple bot that steers like a sensible player: towards the better gate,
-    /// onto "+n" strips and in front of crates. Used by the play-mode smoke test
-    /// and handy for checking new levels hands-free (toggle with F1 in the editor).
+    /// Simple bot that plays like a sensible player: dodges enemy shots, takes the better gate, chases gold
+    /// goblins, runs over "+n" strips, lines up with crates and fires VOLLEY when it is ready. Used by the
+    /// play-mode tests and handy for checking new levels hands-free (toggle with F1 in the editor).
     /// </summary>
     public static class AutoPilot
     {
@@ -14,6 +14,7 @@ namespace NumberRoad.Gameplay
 
         public static float SteerTowards(LevelSession session, float dt)
         {
+            if (session.SkillReady) session.UseSkill();
             Squad squad = session.Squad;
             float target = ChooseX(session);
             float delta = target - squad.TargetX;
@@ -23,18 +24,24 @@ namespace NumberRoad.Gameplay
         public static float ChooseX(LevelSession session)
         {
             Squad squad = session.Squad;
-            var model = new PowerModel(squad.Count, squad.Weapon);
 
-            GatePair gate = session.NextGate();
-            if (gate != null && gate.Z - squad.Z < LookAhead)
+            if (session.ShotThreat(out float landX))
             {
-                if (gate.Left.Shootable)
-                {
-                    GateView best = gate.Left.MaxValue >= gate.Right.MaxValue ? gate.Left : gate.Right;
-                    return best.CenterX;
-                }
-                return model.DpsAfter(gate.Left.Effect) >= model.DpsAfter(gate.Right.Effect) ? gate.Left.CenterX : gate.Right.CenterX;
+                float away = landX > squad.X ? landX - 3f : landX + 3f;
+                return Mathf.Clamp(away, -Balance.SquadMaxX, Balance.SquadMaxX);
             }
+
+            GateRow row = session.NextGateRow();
+            if (row != null && row.Z - squad.Z < LookAhead)
+            {
+                // shoot a locked prize open while there is time, like a player would
+                GateView locked = LockedGate(row);
+                if (locked != null && row.Z - squad.Z > 7f) return locked.CenterX;
+                return BestGate(row, squad).CenterX;
+            }
+
+            int gold = session.Swarm.Find(EnemyTrait.Runaway, squad.Z);
+            if (gold >= 0 && session.Swarm.Agents[gold].Pos.z - squad.Z < 34f) return session.Swarm.Agents[gold].Pos.x;
 
             StripTile strip = session.NextStrip();
             if (strip != null && strip.Z - squad.Z < LookAhead) return strip.X;
@@ -46,8 +53,44 @@ namespace NumberRoad.Gameplay
                 if (crate.Position.z - squad.Z > squad.HalfDepth + 2.5f) return crate.Position.x;
                 return crate.Position.x > 0f ? crate.Position.x - 2.8f : crate.Position.x + 2.8f;
             }
-
             return 0f;
+        }
+
+        static GateView LockedGate(GateRow row)
+        {
+            foreach (GateView g in row.Gates)
+            {
+                if (g.Locked) return g;
+            }
+            return null;
+        }
+
+        static GateView BestGate(GateRow row, Squad squad)
+        {
+            GateView best = row.Gates[0];
+            if (row.Shootable)
+            {
+                foreach (GateView g in row.Gates)
+                {
+                    if (g.MaxValue > best.MaxValue) best = g;
+                }
+                return best;
+            }
+
+            var model = new PowerModel(squad.Army.Clone(), squad.Weapon);
+            float stay = model.ScoreAfter(GateEffect.Add(0));
+            float bestScore = float.MinValue;
+            foreach (GateView g in row.Gates)
+            {
+                // the bot cannot see behind a "?" and gains nothing from a gate that is still locked
+                float score = g.Locked || g.Mystery ? stay * (g.Mystery ? 1.05f : 1f) : model.ScoreAfter(g.Effect);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = g;
+                }
+            }
+            return best;
         }
     }
 }

@@ -20,6 +20,8 @@ TOOLS = os.path.abspath(os.path.join(HERE, ".."))
 ROOT = os.path.abspath(os.path.join(TOOLS, ".."))
 PROJECT = os.path.join(ROOT, "NumberRoad")
 MODELS_DIR = os.path.join(PROJECT, "Assets", "NumberRoad", "Resources", "Models")
+PORTRAITS_DIR = os.path.join(PROJECT, "Assets", "NumberRoad", "Resources", "Portraits")
+SCRIPTS = os.path.join(PROJECT, "Assets", "NumberRoad", "Scripts")
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "deploy-pages.yml")
 
 
@@ -150,7 +152,26 @@ class ModelRegistryTests(unittest.TestCase):
         for node in cls.tree.body:
             if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "MODELS" for t in node.targets):
                 cls.models = [k.value for k in node.value.keys]
+        # the characters come from blender/characters.py (MODELS.update(characters.models(...)))
+        chars = ast.parse(read(os.path.join(ROOT, "blender", "characters.py")))
+        cls.characters = []
+        for fn in chars.body:
+            if isinstance(fn, ast.FunctionDef) and fn.name in ("ally_models", "enemy_models", "boss_models"):
+                for node in ast.walk(fn):
+                    if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
+                        cls.characters += [k.value for k in node.value.keys]
+        if cls.models is not None:
+            cls.models += cls.characters
         cls.fbx = sorted(f[:-4] for f in os.listdir(MODELS_DIR) if f.endswith(".fbx"))
+
+    @staticmethod
+    def game_tables():
+        """Model names in the unit, enemy and boss tables of the C# code."""
+        units = re.findall(r'new UnitClass\(\d+, UnitLine\.\w+, \d, "[^"]+", "([a-z_]+)"', read(os.path.join(SCRIPTS, "Core", "Units.cs")))
+        enemies_cs = read(os.path.join(SCRIPTS, "Core", "Enemies.cs"))
+        enemies = re.findall(r'E\(\d+, "[a-z]+", "[^"]+", "[^"]*", "([a-z_]+)"', enemies_cs)
+        bosses = re.findall(r'new BossType\(\d+, "[a-z]+", "[^"]+", "[^"]*", "([a-z_]+)"', enemies_cs)
+        return units, enemies, bosses
 
     def test_script_declares_models(self):
         self.assertIsNotNone(self.models, "build_models.py に MODELS がありません")
@@ -165,17 +186,43 @@ class ModelRegistryTests(unittest.TestCase):
         for name in self.fbx:
             self.assertIn(name, self.models, f"{name}.fbx は build_models.py で作られていません")
 
+    def test_game_tables_have_20_units_31_enemies_6_bosses(self):
+        units, enemies, bosses = self.game_tables()
+        self.assertEqual(len(units), 20)
+        self.assertEqual(len(set(units)), 20, "兵種ごとに別のモデル")
+        self.assertEqual(len(enemies), 31)
+        self.assertEqual(len(bosses), 6)
+
     def test_models_used_by_the_game_exist(self):
-        scripts = os.path.join(PROJECT, "Assets", "NumberRoad", "Scripts")
         used = set()
-        for dirpath, _, files in os.walk(scripts):
+        for dirpath, _, files in os.walk(SCRIPTS):
             for fn in files:
                 if fn.endswith(".cs"):
                     used.update(re.findall(r'ModelLibrary\.Spawn\("([a-z_]+)"', read(os.path.join(dirpath, fn))))
-                    used.update(re.findall(r'new EnemyArchetype\([^)]*"([a-z_]+)"\)', read(os.path.join(dirpath, fn))))
-        self.assertTrue(used)
+        units, enemies, bosses = self.game_tables()
+        used.update(units + enemies + bosses)
+        self.assertGreater(len(used), 50)
         for name in used:
             self.assertIn(name, self.models, f"ゲームが使う {name} を build_models.py が作っていません")
+
+    def test_every_character_has_a_portrait(self):
+        # 兵舎・図鑑・バナーで使う（build_models.py --portraits で作る）
+        for name in self.characters + ["grunt", "brute", "boss"]:
+            path = os.path.join(PORTRAITS_DIR, name + ".png")
+            self.assertTrue(os.path.isfile(path), f"{name}.png がありません")
+            self.assertTrue(os.path.isfile(path + ".meta"), f"{name}.png.meta がありません")
+            with open(path, "rb") as f:
+                self.assertEqual(f.read(8), bytes([0x89]) + b"PNG" + bytes([13, 10, 26, 10]), name)
+
+
+class WebGLPluginTests(unittest.TestCase):
+    def test_vibration_plugin_matches_the_csharp_import(self):
+        lib = read(os.path.join(PROJECT, "Assets", "NumberRoad", "Plugins", "WebGL", "NumberRoad.jslib"))
+        haptics = read(os.path.join(SCRIPTS, "Presentation", "Haptics.cs"))
+        self.assertIn("mergeInto(LibraryManager.library", lib)
+        self.assertIn("NR_Vibrate", lib)
+        self.assertIn("navigator.vibrate", lib)
+        self.assertRegex(haptics, r'DllImport\("__Internal"\)\]\s+static extern void NR_Vibrate\(int')
 
 
 class ScriptTests(unittest.TestCase):

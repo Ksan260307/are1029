@@ -152,7 +152,7 @@ namespace NumberRoad.UI
 
         public void Popup(string text, Vector3 world, Color color, float scale = 1f, float duration = 0.9f)
         {
-            if (_popups.Count >= 24)
+            if (_popups.Count >= 40)
             {
                 Release(_popups[0].Label);
                 _popups.RemoveAt(0);

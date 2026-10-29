@@ -21,6 +21,17 @@ namespace NumberRoad.Presentation
         Win,
         Lose,
         Start,
+        Combo,
+        ClassUp,
+        Recruit,
+        Warning,
+        Explosion,
+        Crit,
+        Chest,
+        Revive,
+        Skill,
+        Banner,
+        Gem,
     }
 
     /// <summary>
@@ -34,9 +45,12 @@ namespace NumberRoad.Presentation
         readonly Dictionary<Sfx, float> _lastPlayed = new Dictionary<Sfx, float>();
         AudioSource[] _voices;
         AudioSource _music;
+        AudioSource _bossMusic;
         int _nextVoice;
         bool _sound = true;
         bool _musicOn = true;
+        bool _boss;
+        const float MusicVolume = 0.42f;
 
         public void Init(bool sound, bool music)
         {
@@ -52,7 +66,11 @@ namespace NumberRoad.Presentation
             _music = gameObject.AddComponent<AudioSource>();
             _music.playOnAwake = false;
             _music.loop = true;
-            _music.volume = 0.42f;
+            _music.volume = MusicVolume;
+            _bossMusic = gameObject.AddComponent<AudioSource>();
+            _bossMusic.playOnAwake = false;
+            _bossMusic.loop = true;
+            _bossMusic.volume = 0f;
 
             try
             {
@@ -73,11 +91,35 @@ namespace NumberRoad.Presentation
         {
             yield return null;
             float[] data = null;
-            IEnumerator job = Synth.RenderMusic(result => data = result);
+            IEnumerator job = Synth.RenderMusic(Synth.MainSong, result => data = result);
             while (job.MoveNext()) yield return null;
             if (data == null) yield break;
             _music.clip = Synth.CreateClip("Music", data);
             if (_musicOn) _music.Play();
+
+            yield return null;
+            data = null;
+            job = Synth.RenderMusic(Synth.BossSong, result => data = result);
+            while (job.MoveNext()) yield return null;
+            if (data != null) _bossMusic.clip = Synth.CreateClip("BossMusic", data);
+        }
+
+        /// <summary>Crossfades to the faster boss track (and back).</summary>
+        public void SetBossMusic(bool boss)
+        {
+            _boss = boss;
+            if (boss && _musicOn && _bossMusic.clip != null && !_bossMusic.isPlaying) _bossMusic.Play();
+        }
+
+        void Update()
+        {
+            if (_music == null) return;
+            float dt = Time.unscaledDeltaTime;
+            float main = _musicOn && !_boss ? MusicVolume : 0f;
+            float boss = _musicOn && _boss ? MusicVolume : 0f;
+            _music.volume = Mathf.MoveTowards(_music.volume, main, dt * 0.8f);
+            _bossMusic.volume = Mathf.MoveTowards(_bossMusic.volume, boss, dt * 0.8f);
+            if (_bossMusic.isPlaying && _bossMusic.volume <= 0f && !_boss) _bossMusic.Stop();
         }
 
         public bool SoundOn
@@ -94,7 +136,11 @@ namespace NumberRoad.Presentation
                 _musicOn = value;
                 if (_music == null || _music.clip == null) return;
                 if (value && !_music.isPlaying) _music.Play();
-                else if (!value) _music.Stop();
+                else if (!value)
+                {
+                    _music.Stop();
+                    _bossMusic.Stop();
+                }
             }
         }
 
@@ -109,6 +155,19 @@ namespace NumberRoad.Presentation
             AudioSource source = _voices[_nextVoice];
             _nextVoice = (_nextVoice + 1) % _voices.Length;
             source.pitch = 1f + UnityEngine.Random.Range(-pitchJitter, pitchJitter);
+            source.PlayOneShot(clip, volume);
+        }
+
+        /// <summary>Plays at an exact pitch (combo and coin sounds climb as they repeat).</summary>
+        public void PlayPitched(Sfx sfx, float volume, float pitch, float minInterval = 0.03f)
+        {
+            if (!_sound || !_clips.TryGetValue(sfx, out AudioClip clip)) return;
+            float now = Time.unscaledTime;
+            if (_lastPlayed.TryGetValue(sfx, out float last) && now - last < minInterval) return;
+            _lastPlayed[sfx] = now;
+            AudioSource source = _voices[_nextVoice];
+            _nextVoice = (_nextVoice + 1) % _voices.Length;
+            source.pitch = Mathf.Clamp(pitch, 0.5f, 2.5f);
             source.PlayOneShot(clip, volume);
         }
     }
@@ -218,6 +277,36 @@ namespace NumberRoad.Presentation
                     return Build(0.35f, (t, i) =>
                         Noise(i) * 0.15f * Mathf.Sin(Mathf.Clamp01(t / 0.35f) * Mathf.PI) +
                         Triangle(Sweep(t, 300f, 900f, 0.35f)) * 0.15f * Mathf.Exp(-t * 4f));
+                case Sfx.Combo:
+                    return Build(0.09f, (t, i) => Sine(Midi(84f) * t) * 0.25f * Mathf.Exp(-t * 30f) + Sine(Midi(91f) * t) * 0.1f * Mathf.Exp(-t * 40f));
+                case Sfx.ClassUp:
+                    return Build(0.9f, (t, i) =>
+                        Arpeggio(t, new[] { 60f, 64f, 67f, 72f, 76f, 79f, 84f }, 0.07f, Triangle, 3f) * 0.28f +
+                        Sine(Midi(96f) * t) * 0.06f * Mathf.Sin(t * 30f) * Mathf.Exp(-t * 2f));
+                case Sfx.Recruit:
+                    return Build(0.35f, (t, i) => Arpeggio(t, new[] { 67f, 72f, 76f }, 0.08f, p => Square(p) * 0.5f, 8f) * 0.22f);
+                case Sfx.Warning:
+                    return Build(0.8f, (t, i) => Square(t < 0.4f ? 520f * t : 520f * 0.4f + 390f * (t - 0.4f)) * 0.12f * (1f - t / 0.8f));
+                case Sfx.Explosion:
+                    return Build(0.6f, (t, i) =>
+                        Noise(i) * 0.45f * Mathf.Exp(-t * 7f) +
+                        Sine(Sweep(t, 90f, 30f, 0.6f)) * 0.55f * Mathf.Exp(-t * 5f));
+                case Sfx.Crit:
+                    return Build(0.12f, (t, i) => Square(Sweep(t, 1200f, 600f, 0.12f)) * 0.12f * Mathf.Exp(-t * 25f) + Noise(i) * 0.08f * Mathf.Exp(-t * 60f));
+                case Sfx.Chest:
+                    return Build(0.8f, (t, i) =>
+                        Noise(i) * 0.2f * Mathf.Exp(-t * 20f) +
+                        Arpeggio(t, new[] { 76f, 79f, 84f, 88f, 91f }, 0.09f, Sine, 4f) * 0.3f);
+                case Sfx.Revive:
+                    return Build(0.9f, (t, i) => Arpeggio(t, new[] { 64f, 67f, 71f, 76f, 79f, 83f }, 0.12f, Sine, 2.5f) * 0.3f);
+                case Sfx.Skill:
+                    return Build(0.9f, (t, i) =>
+                        (Noise(i) - Noise(i - 1)) * 0.25f * Mathf.Sin(Mathf.Clamp01(t / 0.9f) * Mathf.PI) +
+                        Triangle(Sweep(t, 200f, 1200f, 0.9f)) * 0.12f * Mathf.Exp(-t * 2f));
+                case Sfx.Banner:
+                    return Build(0.3f, (t, i) => Arpeggio(t, new[] { 79f, 84f }, 0.1f, Triangle, 6f) * 0.25f);
+                case Sfx.Gem:
+                    return Build(0.35f, (t, i) => Sine(Midi(96f) * t) * 0.22f * Mathf.Exp(-t * 9f) + Sine(Midi(103f) * t) * 0.12f * Mathf.Exp(-t * 12f));
                 default:
                     return new float[1];
             }
@@ -225,24 +314,51 @@ namespace NumberRoad.Presentation
 
         // --- Music -------------------------------------------------------------------
 
-        const float Bpm = 124f;
-        const int Bars = 8;
-
-        // chord roots (MIDI) per bar and chord quality (0 = major, 1 = minor)
-        static readonly int[] Roots = { 60, 55, 57, 53, 60, 55, 53, 55 };
-        static readonly int[] Minor = { 0, 0, 1, 0, 0, 0, 0, 0 };
-
-        // one string per bar, 8 eighth notes; "-" holds the previous note, "." is a rest
-        static readonly string[] Melody =
+        /// <summary>An 8-bar loop: tempo, chord root and quality per bar, and one melody line per bar.</summary>
+        public sealed class Song
         {
-            "E5 - G5 - A5 G5 E5 -",
-            "D5 - G5 - B5 A5 G5 -",
-            "C5 - E5 - A5 G5 E5 -",
-            "F5 - A5 - C6 - A5 .",
-            "E5 G5 C6 - B5 A5 G5 -",
-            "D5 G5 B5 - A5 G5 D5 -",
-            "C5 F5 A5 - G5 F5 E5 -",
-            "D5 - G5 - B5 - D6 .",
+            public float Bpm;
+            public int[] Roots;
+            public int[] Minor;
+            // one string per bar, 8 eighth notes; "-" holds the previous note, "." is a rest
+            public string[] Melody;
+        }
+
+        public static readonly Song MainSong = new Song
+        {
+            Bpm = 124f,
+            Roots = new[] { 60, 55, 57, 53, 60, 55, 53, 55 },
+            Minor = new[] { 0, 0, 1, 0, 0, 0, 0, 0 },
+            Melody = new[]
+            {
+                "E5 - G5 - A5 G5 E5 -",
+                "D5 - G5 - B5 A5 G5 -",
+                "C5 - E5 - A5 G5 E5 -",
+                "F5 - A5 - C6 - A5 .",
+                "E5 G5 C6 - B5 A5 G5 -",
+                "D5 G5 B5 - A5 G5 D5 -",
+                "C5 F5 A5 - G5 F5 E5 -",
+                "D5 - G5 - B5 - D6 .",
+            },
+        };
+
+        /// <summary>Faster minor-key loop for boss fights.</summary>
+        public static readonly Song BossSong = new Song
+        {
+            Bpm = 150f,
+            Roots = new[] { 57, 53, 55, 52, 57, 53, 50, 52 },
+            Minor = new[] { 1, 0, 0, 0, 1, 0, 1, 0 },
+            Melody = new[]
+            {
+                "A5 A5 C6 A5 E6 - D6 C6",
+                "A5 - F5 - A5 C6 A5 -",
+                "G5 G5 B5 G5 D6 - C6 B5",
+                "G#5 - E5 - G#5 B5 E6 -",
+                "A5 A5 C6 A5 E6 - G6 E6",
+                "F6 - E6 D6 C6 - A5 -",
+                "D6 C6 A5 F5 D5 - F5 A5",
+                "E5 G#5 B5 E6 G#6 - E6 .",
+            },
         };
 
         static float ParseNote(string token)
@@ -256,9 +372,13 @@ namespace NumberRoad.Presentation
         }
 
         /// <summary>Renders a seamless 8-bar loop, yielding between voices to keep frames short.</summary>
-        public static IEnumerator RenderMusic(Action<float[]> done)
+        public static IEnumerator RenderMusic(Song song, Action<float[]> done)
         {
-            float beat = 60f / Bpm;
+            const int Bars = 8;
+            int[] Roots = song.Roots;
+            int[] Minor = song.Minor;
+            string[] Melody = song.Melody;
+            float beat = 60f / song.Bpm;
             float eighth = beat / 2f;
             int length = Mathf.RoundToInt(Bars * 4 * beat * Rate);
             var mix = new float[length];

@@ -59,4 +59,23 @@ namespace NumberRoad.EditorTools
             return changed;
         }
     }
+
+    /// <summary>The Blender portraits in Resources/Portraits are UI images: no mipmaps, clamped, clean alpha edges.</summary>
+    public sealed class PortraitImportRules : AssetPostprocessor
+    {
+        public const string PortraitsFolder = ProjectSetup.Root + "/Resources/Portraits";
+
+        void OnPreprocessTexture()
+        {
+            if (!assetPath.StartsWith(PortraitsFolder)) return;
+            var importer = (TextureImporter)assetImporter;
+            importer.textureType = TextureImporterType.Default;
+            importer.alphaIsTransparency = true;
+            importer.mipmapEnabled = false;
+            importer.wrapMode = TextureWrapMode.Clamp;
+            importer.npotScale = TextureImporterNPOTScale.None;
+            importer.maxTextureSize = 128;
+            importer.textureCompression = TextureImporterCompression.Compressed;
+        }
+    }
 }
