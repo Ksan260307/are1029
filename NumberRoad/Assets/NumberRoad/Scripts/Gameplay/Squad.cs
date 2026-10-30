@@ -33,6 +33,7 @@ namespace NumberRoad.Gameplay
         readonly int[] _have = new int[Units.Count];
         readonly int[] _want = new int[Units.Count];
         readonly ClassFire[] _plans = new ClassFire[Units.Count];
+        readonly float[] _sweep = new float[Units.Count];
         readonly LabelLayer.Label _badge;
         readonly float _guardBonus;
         readonly float _recruitBonus;
@@ -46,6 +47,14 @@ namespace NumberRoad.Gameplay
         bool _walking;
         bool _syncPending;
         Vector3 _syncPoint;
+        float _sweepFlash;
+        float _regenAccum;
+        float _wardClock;
+
+        /// <summary>Buffs picked between waves (heal and regeneration read it here).</summary>
+        public RunMods Mods = new RunMods();
+        /// <summary>March speed factor (FAST MARCH): the legs move faster too.</summary>
+        public float Pace { get; set; } = 1f;
 
         public int Count => Army.Total;
         public int Peak => Army.Peak;
@@ -61,8 +70,8 @@ namespace NumberRoad.Gameplay
         public float HalfDepth { get; private set; }
         public int VisibleCount => _visible;
         public Vector3 Position => new Vector3(X, 0f, Z);
-        public float Dps => Army.Dps(Weapon);
-        public float GuardChance => Army.GuardChance(_guardBonus);
+        public float Dps => Army.Dps(Effective(1f));
+        public float GuardChance => Mathf.Clamp(Army.GuardChance(_guardBonus) + Mods.Guard, 0f, 0.9f);
 
         public Squad(GameContext ctx, Army army, WeaponStats weapon, float guardBonus, float recruitBonus, UnitLine fallback)
         {
@@ -219,15 +228,60 @@ namespace NumberRoad.Gameplay
             _badge.PunchScale(0.35f);
         }
 
-        /// <summary>Soldiers fall to an enemy. Combat losses can be healed back by the holy line.</summary>
+        /// <summary>
+        /// Soldiers fall to an enemy. Combat losses can be healed back by the holy line, are soaked up by a
+        /// HOLY WARD first, and a SECOND WIND brings half of the fallen back once the army gets small.
+        /// </summary>
         public int Lose(int amount, Vector3 hitPoint, bool combat = true)
         {
+            if (combat && Mods.Ward > 0 && amount > 0)
+            {
+                int soaked = Mathf.Min(Mods.Ward, amount);
+                Mods.Ward -= soaked;
+                amount -= soaked;
+                if (_wardClock <= 0f)
+                {
+                    _wardClock = 0.4f;
+                    _ctx.Labels.Popup(Mods.Ward > 0 ? "WARD" : "WARD BROKEN", hitPoint + Vector3.up * 1.5f, new Color(0.7f, 0.9f, 1f), 0.7f);
+                    _ctx.Fx.Sparks(hitPoint + Vector3.up * 0.6f, new Color(0.75f, 0.9f, 1f), 6, 4f, 0.25f);
+                }
+                if (amount <= 0) return 0;
+            }
             int removed = Army.Remove(amount);
             if (removed <= 0) return 0;
             if (combat) Fallen += removed;
             SyncLater(hitPoint);
             _badge.PunchScale(0.3f);
+            if (Mods.SecondWind && combat && Count < Peak * 0.25f && Fallen > 0)
+            {
+                Mods.SecondWind = false;
+                int back = Recover(Mathf.Max(1, Fallen / 2));
+                _ctx.Labels.Popup("SECOND WIND +" + Fmt.Num(back), Position + new Vector3(0f, 2.8f, 0.5f), new Color(1f, 0.95f, 0.55f), 1.3f, 1.2f);
+                _ctx.Audio.Play(Sfx.Revive);
+            }
             return removed;
+        }
+
+        /// <summary>Soldiers of one line join at its first class (buff cards).</summary>
+        public int Recruit(UnitLine line, int amount, Vector3 origin)
+        {
+            int added = Army.Add(Units.First(line).Id, amount);
+            Sync(origin, true);
+            _badge.PunchScale(0.45f);
+            return added;
+        }
+
+        /// <summary>Fallen soldiers get back up (FIELD MEDIC, SECOND WIND). Returns how many came back.</summary>
+        public int Recover(int amount)
+        {
+            amount = Mathf.Min(amount, Fallen);
+            if (amount <= 0) return 0;
+            Fallen -= amount;
+            Healed += amount;
+            Army.AddMixed(amount, Fallback);
+            Sync(Position, true);
+            for (int i = 0; i < _visible; i++) _soldiers[i].Glow = 1f;
+            return amount;
         }
 
         /// <summary>Every soldier below the top tier moves one tier up its line. Returns false when all are maxed.</summary>
@@ -260,8 +314,9 @@ namespace NumberRoad.Gameplay
         {
             if (_syncPending) Sync(_syncPoint, true);
             _walking = walking;
-            _walkClock += dt * (walking ? 11f : 2f);
+            _walkClock += dt * (walking ? 11f * Pace : 2f);
             _celebrate = Mathf.Max(0f, _celebrate - dt);
+            _wardClock -= dt;
             float follow = 1f - Mathf.Exp(-8f * dt);
             for (int i = 0; i < _visible; i++)
             {
@@ -284,7 +339,15 @@ namespace NumberRoad.Gameplay
                 _healAccum = 0f;
                 return;
             }
-            _healAccum += Army.HealPerSecond * dt;
+            _healAccum += Army.HealPerSecond * Mods.HealRate * dt;
+            // REGENERATION: a share of the army returns every second while soldiers are down
+            _regenAccum += Mods.Regen * Mathf.Max(Count, 10) * dt;
+            if (_regenAccum >= 1f)
+            {
+                int r = Mathf.FloorToInt(_regenAccum);
+                _regenAccum -= r;
+                _healAccum += r;
+            }
             if (_healAccum >= 1f)
             {
                 int n = Mathf.Min(Fallen, Mathf.FloorToInt(_healAccum));
@@ -304,15 +367,34 @@ namespace NumberRoad.Gameplay
             }
         }
 
-        /// <summary>Emits this frame's bullets. <paramref name="rateScale"/> is below 1 while an ice wraith is near.</summary>
-        public void Fire(float dt, BulletSystem bullets, float rateScale)
+        /// <summary>The weapon after this run's buffs (and the BLOODLUST combo bonus).</summary>
+        public WeaponStats Effective(float damageFactor)
+        {
+            WeaponStats w = Weapon;
+            w.fireRateMul *= Mods.Rate;
+            w.damageMul *= Mods.Damage * damageFactor;
+            w.multiShot = Mathf.Clamp(w.multiShot + Mods.ExtraShots, 1, Balance.MaxMultiShot + 3);
+            w.critChance = Mathf.Clamp01(w.critChance + Mods.CritChance);
+            return w;
+        }
+
+        /// <summary>
+        /// Every drawn soldier attacks in its class's own way: seeking arrows, straight bolts, spray, piercing
+        /// shots at the toughest enemy, lobbed bursts at the thickest crowd, chain lightning, light from the sky
+        /// or sword sweeps in front of the squad. <paramref name="rateScale"/> is below 1 while an ice wraith is near.
+        /// </summary>
+        public void Fire(float dt, BulletSystem bullets, Swarm swarm, IBulletTarget boss, float rateScale, float damageFactor)
         {
             if (_visible == 0 || Count == 0) return;
-            float throttle = FireModel.Throttle(_have, Weapon, rateScale);
+            WeaponStats w = Effective(damageFactor);
+            float critMultiplier = Balance.CritMultiplier + Mods.CritDamage;
+            float throttle = FireModel.Throttle(_have, w, rateScale);
             for (int c = 0; c < Units.Count; c++)
             {
-                if (_have[c] > 0) _plans[c] = FireModel.Plan(Units.All[c], Army[c], _have[c], Weapon, throttle, rateScale);
+                if (_have[c] > 0) _plans[c] = FireModel.Plan(Units.All[c], Army[c], _have[c], w, throttle, rateScale);
             }
+            System.Array.Clear(_sweep, 0, _sweep.Length);
+            bool bossInReach = boss != null && boss.IsTargetable;
 
             float scale = Balance.SoldierScale(_visible);
             bool fired = false;
@@ -327,16 +409,88 @@ namespace NumberRoad.Gameplay
                 if (s.Pop < 0.6f) continue;
 
                 UnitClass unit = Units.All[s.ClassId];
+                float range = unit.Range * Mods.Range;
                 Vector3 muzzle = WorldOf(ref s) + new Vector3(0f, 0.55f * scale, 0.35f);
                 for (int b = 0; b < plan.Shots; b++)
                 {
+                    bool crit = Random.value < w.critChance;
+                    float damage = plan.Damage * (crit ? critMultiplier : 1f);
                     float angle = (b - (plan.Shots - 1) * 0.5f) * Balance.MultiShotSpreadDegrees;
-                    bool crit = Random.value < Weapon.critChance;
-                    bullets.Spawn(unit, muzzle, Quaternion.Euler(0f, angle, 0f) * Vector3.forward, plan.Damage, crit);
+                    switch (unit.Style)
+                    {
+                        case AttackStyle.Sweep:
+                            _sweep[s.ClassId] += damage;
+                            break;
+                        case AttackStyle.Spray:
+                            bullets.Shoot(unit, muzzle, Quaternion.Euler(0f, angle + Random.Range(-14f, 14f), 0f) * Vector3.forward, damage, crit);
+                            break;
+                        case AttackStyle.Lob:
+                            bullets.Lob(unit, muzzle, LobTarget(swarm, boss, muzzle, range, i + b), damage, crit);
+                            break;
+                        case AttackStyle.Beam:
+                        {
+                            Vector3 to;
+                            if (unit.Pierce >= 99 && swarm.Toughest >= 0) to = swarm.Agents[swarm.Toughest].Pos + Vector3.up * 0.6f;
+                            else if (unit.Pierce >= 99 && bossInReach) to = boss.TargetPosition;
+                            else to = muzzle + Quaternion.Euler(0f, angle, 0f) * Vector3.forward * range;
+                            bullets.Beam(unit, muzzle, to, damage, crit, boss);
+                            break;
+                        }
+                        case AttackStyle.Chain:
+                        {
+                            int first = swarm.FrontNear(muzzle.x, i + b);
+                            if (first >= 0) bullets.Chain(unit, muzzle, first, damage, crit);
+                            else if (bossInReach && boss.TargetPosition.z - Z < range) bullets.Strike(boss, muzzle, damage, crit, unit.Color, false, unit.Element);
+                            break;
+                        }
+                        case AttackStyle.Smite:
+                        {
+                            int target = swarm.Front(Random.Range(0, 1 << 20));
+                            if (target >= 0) bullets.Smite(unit, target, damage, crit);
+                            else if (bossInReach && boss.TargetPosition.z - Z < range) bullets.Strike(boss, muzzle, damage, crit, unit.Color, true, unit.Element);
+                            break;
+                        }
+                        default:
+                            bullets.Shoot(unit, muzzle, Quaternion.Euler(0f, angle, 0f) * Vector3.forward, damage, crit);
+                            break;
+                    }
                 }
                 fired = true;
             }
+
+            // knights: each class swings once per frame with everything its soldiers put into the swing
+            _sweepFlash -= dt;
+            for (int c = 0; c < Units.Count; c++)
+            {
+                if (_sweep[c] <= 0f) continue;
+                UnitClass unit = Units.All[c];
+                var center = new Vector3(X, 0f, Z + HalfDepth + unit.Range * 0.4f);
+                bullets.Sweep(unit, center, _sweep[c], _sweepFlash <= 0f);
+                if (bossInReach && boss.TargetPosition.z - center.z < unit.Range + boss.HalfDepth)
+                {
+                    bullets.Strike(boss, center, _sweep[c], false, unit.Color, false, unit.Element);
+                }
+            }
+            if (_sweepFlash <= 0f) _sweepFlash = 0.22f;
             if (fired) _ctx.Audio.Play(Sfx.Shoot, 0.26f, 0.12f, 0.06f);
+        }
+
+        /// <summary>Where a lobbed shot lands: the thickest crowd ahead, else the nearest enemy, else the boss.</summary>
+        Vector3 LobTarget(Swarm swarm, IBulletTarget boss, Vector3 muzzle, float range, int salt)
+        {
+            Vector3 target;
+            if (swarm.HasDensest) target = swarm.Densest;
+            else
+            {
+                int f = swarm.FrontNear(muzzle.x, salt);
+                if (f >= 0) target = swarm.Agents[f].Pos;
+                else if (boss != null && boss.IsTargetable) target = boss.TargetPosition;
+                else target = muzzle + Vector3.forward * (range * 0.7f);
+            }
+            target += new Vector3(Random.Range(-1.1f, 1.1f), 0f, Random.Range(-1.1f, 1.1f));
+            target.z = Mathf.Min(target.z, Z + range);
+            target.x = Mathf.Clamp(target.x, -Balance.RoadHalfWidth, Balance.RoadHalfWidth);
+            return target;
         }
 
         public void Render(CrowdRenderer renderer)

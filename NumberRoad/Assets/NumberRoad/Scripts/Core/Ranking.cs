@@ -15,6 +15,9 @@ namespace NumberRoad.Core
         public int combo;
         public bool won;
         public bool daily;
+        /// <summary>An endless run: <see cref="stage"/> is where it ended.</summary>
+        public bool endless;
+        public int stage;
         public long unix;
     }
 
@@ -33,11 +36,15 @@ namespace NumberRoad.Core
     {
         public const int Size = 10;
 
-        /// <summary>A run's score: kills, combo and army size, plus a bonus for clearing the level and its stars.</summary>
-        public static int Score(int kills, int army, int combo, int level, bool won, int stars)
+        /// <summary>
+        /// A run's score: kills, combo and army size, plus a bonus for clearing the level and its stars
+        /// (and for every boss beaten in an endless run).
+        /// </summary>
+        public static int Score(int kills, int army, int combo, int level, bool won, int stars, int bosses = 0)
         {
             long score = (long)kills * 10 + (long)combo * 25 + Math.Min(army, Balance.MaxSquad)
-                         + (won ? Mathf.Max(1, level) * 1000L + stars * 500L : Mathf.Max(1, level) * 100L);
+                         + (won ? Mathf.Max(1, level) * 1000L + stars * 500L : Mathf.Max(1, level) * 100L)
+                         + Math.Max(0, bosses) * 1500L;
             return (int)Math.Min(int.MaxValue, score);
         }
 

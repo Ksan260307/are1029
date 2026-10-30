@@ -151,6 +151,19 @@ namespace NumberRoad.Core
             return Total - before;
         }
 
+        /// <summary>True while at least one soldier can still move up a tier.</summary>
+        public bool CanClassUp
+        {
+            get
+            {
+                for (int i = 0; i < Units.Count; i++)
+                {
+                    if (_counts[i] > 0 && !Units.All[i].IsMaxTier) return true;
+                }
+                return false;
+            }
+        }
+
         /// <summary>Every soldier below the top tier moves one tier up its line.</summary>
         public bool ClassUp()
         {
@@ -180,6 +193,21 @@ namespace NumberRoad.Core
                 sum += (double)_counts[i] * unit.Rate * unit.Damage * Balance.MultiShotFactor(shots);
             }
             return (float)(sum * weapon.fireRateMul * weapon.damageMul * weapon.ExpectedCrit);
+        }
+
+        /// <summary>Average damage multiplier of this army against one target, weighted by each class's share of the damage.</summary>
+        public float ElementFactor(Func<Element, float> multiplier)
+        {
+            double sum = 0, weight = 0;
+            for (int i = 0; i < Units.Count; i++)
+            {
+                if (_counts[i] == 0) continue;
+                UnitClass unit = Units.All[i];
+                double dps = (double)_counts[i] * unit.Rate * unit.Damage;
+                sum += dps * multiplier(unit.Element);
+                weight += dps;
+            }
+            return weight > 0 ? (float)(sum / weight) : 1f;
         }
 
         /// <summary>Average number of horde enemies one bullet takes down (splash / pierce).</summary>

@@ -12,6 +12,7 @@ namespace NumberRoad.Core
         Holy,
     }
 
+    /// <summary>What a projectile looks like.</summary>
     public enum ProjectileKind
     {
         Arrow,
@@ -22,7 +23,37 @@ namespace NumberRoad.Core
         Holy,
     }
 
-    /// <summary>One ally class. Numbers are per soldier and per bullet, before squad scaling.</summary>
+    /// <summary>How a class attacks. This is what makes the lines play differently.</summary>
+    public enum AttackStyle
+    {
+        /// <summary>A projectile that flies straight ahead.</summary>
+        Straight,
+        /// <summary>A projectile that curves towards the nearest enemy (never misses flyers).</summary>
+        Seek,
+        /// <summary>Straight shots with a wide random spread.</summary>
+        Spray,
+        /// <summary>An instant shot along a line at a chosen target (the toughest enemy for snipers).</summary>
+        Beam,
+        /// <summary>An arcing shot that bursts on the thickest crowd (goes over shields).</summary>
+        Lob,
+        /// <summary>Instant lightning that leaps from enemy to enemy.</summary>
+        Chain,
+        /// <summary>Light called down on an enemy anywhere in range (goes over shields).</summary>
+        Smite,
+        /// <summary>Melee sweeps that hit every enemy close to the front of the squad.</summary>
+        Sweep,
+    }
+
+    public enum Element
+    {
+        Physical,
+        Fire,
+        Frost,
+        Lightning,
+        Holy,
+    }
+
+    /// <summary>One ally class. Numbers are per soldier and per hit, before squad scaling.</summary>
     public sealed class UnitClass
     {
         public readonly int Id;
@@ -36,14 +67,19 @@ namespace NumberRoad.Core
         public readonly int Shots;
         public readonly float Range;
         public readonly ProjectileKind Projectile;
+        public readonly AttackStyle Style;
+        public readonly Element Element;
         public readonly float Splash;
         public readonly int Pierce;
+        public readonly int Chains;
+        public readonly float Knockback;
         public readonly float Guard;
         public readonly float Heal;
         public readonly Color32 Color;
 
-        public UnitClass(int id, UnitLine line, int tier, string name, string model, string description, float rate, float damage,
-            int shots, float range, ProjectileKind projectile, float splash, int pierce, float guard, float heal, Color32 color)
+        public UnitClass(int id, UnitLine line, int tier, string name, string model, string description, AttackStyle style, Element element,
+            float rate, float damage, int shots, float range, ProjectileKind projectile, float splash, int pierce, int chains, float knockback,
+            float guard, float heal, Color32 color)
         {
             Id = id;
             Line = line;
@@ -51,6 +87,8 @@ namespace NumberRoad.Core
             Name = name;
             Model = model;
             Description = description;
+            Style = style;
+            Element = element;
             Rate = rate;
             Damage = damage;
             Shots = shots;
@@ -58,6 +96,8 @@ namespace NumberRoad.Core
             Projectile = projectile;
             Splash = splash;
             Pierce = pierce;
+            Chains = chains;
+            Knockback = knockback;
             Guard = guard;
             Heal = heal;
             Color = color;
@@ -69,8 +109,25 @@ namespace NumberRoad.Core
         /// <summary>Single-target damage per second of one soldier.</summary>
         public float Dps => Rate * Damage * Balance.MultiShotFactor(Shots);
 
-        /// <summary>Rough effectiveness against dense hordes (splash and pierce hit several enemies).</summary>
-        public float CrowdFactor => 1f + Splash * 2.2f + Pierce * 0.6f;
+        /// <summary>Rough effectiveness against dense hordes (area and multi-target attacks hit several enemies).</summary>
+        public float CrowdFactor
+        {
+            get
+            {
+                switch (Style)
+                {
+                    case AttackStyle.Lob:
+                    case AttackStyle.Smite: return 1f + Splash * 2.2f;
+                    case AttackStyle.Chain: return 1f + Chains * 0.7f;
+                    case AttackStyle.Sweep: return 1f + Range * 0.5f;
+                    case AttackStyle.Beam: return 1f + Mathf.Min(Pierce, 4) * 0.8f;
+                    default: return 1f + Mathf.Min(Pierce, 4) * 0.6f + Splash * 2.2f;
+                }
+            }
+        }
+
+        /// <summary>True when the attack creates no projectile (it lands the moment the soldier attacks).</summary>
+        public bool Instant => Style == AttackStyle.Beam || Style == AttackStyle.Chain || Style == AttackStyle.Smite || Style == AttackStyle.Sweep;
     }
 
     public static class Units
@@ -85,33 +142,61 @@ namespace NumberRoad.Core
             return c;
         }
 
+        static UnitClass U(int id, UnitLine line, string name, string model, string description, AttackStyle style, Element element,
+            float rate, float damage, int shots, float range, ProjectileKind projectile, string color,
+            float splash = 0f, int pierce = 0, int chains = 0, float knockback = 0f, float guard = 0f, float heal = 0f)
+        {
+            return new UnitClass(id, line, id % Tiers + 1, name, model, description, style, element, rate, damage, shots, range, projectile,
+                splash, pierce, chains, knockback, guard, heal, C(color));
+        }
+
         // id = line * 4 + (tier - 1)
         public static readonly UnitClass[] All =
         {
-            new UnitClass(0, UnitLine.Bow, 1, "ARCHER", "u_archer", "Quick arrows at a single target.", 2.0f, 1.0f, 1, 26f, ProjectileKind.Arrow, 0f, 0, 0f, 0f, C("#5fd068")),
-            new UnitClass(1, UnitLine.Bow, 2, "CROSSBOW", "u_crossbow", "Heavier bolts that hit harder.", 1.8f, 1.8f, 1, 28f, ProjectileKind.Arrow, 0f, 0, 0f, 0f, C("#3c8dff")),
-            new UnitClass(2, UnitLine.Bow, 3, "RANGER", "u_ranger", "Looses two arrows at once.", 2.2f, 1.9f, 2, 28f, ProjectileKind.Arrow, 0f, 0, 0f, 0f, C("#2fbf8f")),
-            new UnitClass(3, UnitLine.Bow, 4, "SNIPER", "u_sniper", "Arrows pierce four enemies.", 1.1f, 8.0f, 1, 34f, ProjectileKind.Arrow, 0f, 4, 0f, 0f, C("#ffd34d")),
+            U(0, UnitLine.Bow, "ARCHER", "u_archer", "Arrows curve into the nearest enemy. Never miss flyers.", AttackStyle.Seek, Element.Physical,
+                2.0f, 1.0f, 1, 26f, ProjectileKind.Arrow, "#5fd068"),
+            U(1, UnitLine.Bow, "CROSSBOW", "u_crossbow", "Heavy bolts punch through the first enemy.", AttackStyle.Straight, Element.Physical,
+                1.6f, 2.2f, 1, 28f, ProjectileKind.Arrow, "#3c8dff", pierce: 1, knockback: 0.3f),
+            U(2, UnitLine.Bow, "RANGER", "u_ranger", "Three seeking arrows at once.", AttackStyle.Seek, Element.Physical,
+                1.7f, 1.6f, 3, 28f, ProjectileKind.Arrow, "#2fbf8f"),
+            U(3, UnitLine.Bow, "SNIPER", "u_sniper", "Picks off the toughest enemy, piercing everything in between.", AttackStyle.Beam, Element.Physical,
+                0.8f, 10f, 1, 36f, ProjectileKind.Arrow, "#ffd34d", pierce: 99),
 
-            new UnitClass(4, UnitLine.Guard, 1, "SQUIRE", "u_squire", "Short spears. Blocks some body slams.", 1.6f, 1.4f, 1, 15f, ProjectileKind.Spear, 0f, 0, 0.25f, 0f, C("#c9a27a")),
-            new UnitClass(5, UnitLine.Guard, 2, "KNIGHT", "u_knight", "Sturdy shield, strong spear throws.", 1.6f, 2.3f, 1, 16f, ProjectileKind.Spear, 0f, 0, 0.4f, 0f, C("#a8c4ff")),
-            new UnitClass(6, UnitLine.Guard, 3, "PALADIN", "u_paladin", "Holy spears pierce one enemy.", 1.7f, 3.6f, 1, 17f, ProjectileKind.Spear, 0f, 1, 0.55f, 0f, C("#fff0a8")),
-            new UnitClass(7, UnitLine.Guard, 4, "CHAMPION", "u_champion", "Unbreakable wall of steel.", 1.8f, 5.8f, 1, 18f, ProjectileKind.Spear, 0f, 2, 0.7f, 0f, C("#ffb347")),
+            U(4, UnitLine.Guard, "SQUIRE", "u_squire", "Short spear throws push enemies back. Blocks some body slams.", AttackStyle.Straight, Element.Physical,
+                1.6f, 1.4f, 1, 14f, ProjectileKind.Spear, "#c9a27a", knockback: 0.6f, guard: 0.25f),
+            U(5, UnitLine.Guard, "KNIGHT", "u_knight", "Sword sweeps cut down every enemy that reaches the front.", AttackStyle.Sweep, Element.Physical,
+                1.2f, 2.6f, 1, 4.5f, ProjectileKind.Spear, "#a8c4ff", knockback: 0.8f, guard: 0.4f),
+            U(6, UnitLine.Guard, "PALADIN", "u_paladin", "Holy sweeps, deadly to the undead.", AttackStyle.Sweep, Element.Holy,
+                1.2f, 3.8f, 1, 5f, ProjectileKind.Spear, "#fff0a8", knockback: 1f, guard: 0.55f),
+            U(7, UnitLine.Guard, "CHAMPION", "u_champion", "Whirlwind sweeps hurl whole crowds back.", AttackStyle.Sweep, Element.Physical,
+                1.3f, 5.6f, 1, 6f, ProjectileKind.Spear, "#ffb347", knockback: 1.6f, guard: 0.7f),
 
-            new UnitClass(8, UnitLine.Magic, 1, "APPRENTICE", "u_apprentice", "Small magic bursts hit groups.", 1.3f, 1.1f, 1, 24f, ProjectileKind.Orb, 0.9f, 0, 0f, 0f, C("#c48bff")),
-            new UnitClass(9, UnitLine.Magic, 2, "MAGE", "u_mage", "Bigger blasts for bigger crowds.", 1.4f, 1.8f, 1, 25f, ProjectileKind.Orb, 1.2f, 0, 0f, 0f, C("#8f6bff")),
-            new UnitClass(10, UnitLine.Magic, 3, "WIZARD", "u_wizard", "Wide blasts melt hordes.", 1.5f, 2.8f, 1, 26f, ProjectileKind.Orb, 1.6f, 0, 0f, 0f, C("#5b8cff")),
-            new UnitClass(11, UnitLine.Magic, 4, "ARCHMAGE", "u_archmage", "Huge blasts clear the road.", 1.5f, 4.6f, 1, 27f, ProjectileKind.Orb, 2.2f, 0, 0f, 0f, C("#ff6bd6")),
+            U(8, UnitLine.Magic, "APPRENTICE", "u_apprentice", "Lobs fireballs into the thickest crowd. Burns.", AttackStyle.Lob, Element.Fire,
+                1.2f, 1.2f, 1, 24f, ProjectileKind.Orb, "#c48bff", splash: 1f),
+            U(9, UnitLine.Magic, "MAGE", "u_mage", "Frost bombs slow everything they hit.", AttackStyle.Lob, Element.Frost,
+                1.1f, 2f, 1, 26f, ProjectileKind.Orb, "#8fd6ff", splash: 1.3f),
+            U(10, UnitLine.Magic, "WIZARD", "u_wizard", "Lightning leaps between four enemies. Melts armour.", AttackStyle.Chain, Element.Lightning,
+                1.2f, 2.6f, 1, 24f, ProjectileKind.Orb, "#5b8cff", chains: 4),
+            U(11, UnitLine.Magic, "ARCHMAGE", "u_archmage", "Meteors flatten crowds and leave the ground burning.", AttackStyle.Lob, Element.Fire,
+                0.7f, 7f, 1, 30f, ProjectileKind.Orb, "#ff6bd6", splash: 2.6f),
 
-            new UnitClass(12, UnitLine.Gun, 1, "MUSKETEER", "u_musketeer", "Fast shots.", 2.6f, 0.9f, 1, 26f, ProjectileKind.Bullet, 0f, 0, 0f, 0f, C("#ffcf6b")),
-            new UnitClass(13, UnitLine.Gun, 2, "RIFLEMAN", "u_rifleman", "Faster, longer reach.", 3.2f, 1.2f, 1, 30f, ProjectileKind.Bullet, 0f, 0, 0f, 0f, C("#ffad33")),
-            new UnitClass(14, UnitLine.Gun, 3, "GATLING", "u_gatling", "A hail of bullets.", 6.0f, 1.05f, 1, 26f, ProjectileKind.Bullet, 0f, 0, 0f, 0f, C("#ff8a3d")),
-            new UnitClass(15, UnitLine.Gun, 4, "CANNONEER", "u_cannoneer", "Explosive cannon balls.", 1.0f, 7.0f, 1, 30f, ProjectileKind.Cannon, 2.6f, 0, 0f, 0f, C("#ff5a3d")),
+            U(12, UnitLine.Gun, "MUSKETEER", "u_musketeer", "Fast, straight shots.", AttackStyle.Straight, Element.Physical,
+                2.6f, 0.95f, 1, 26f, ProjectileKind.Bullet, "#ffcf6b"),
+            U(13, UnitLine.Gun, "RIFLEMAN", "u_rifleman", "Long rifle shots go through two enemies.", AttackStyle.Beam, Element.Physical,
+                1.4f, 2.6f, 1, 34f, ProjectileKind.Bullet, "#ffad33", pierce: 2),
+            U(14, UnitLine.Gun, "GATLING", "u_gatling", "Sprays a hail of bullets across the road.", AttackStyle.Spray, Element.Physical,
+                7f, 0.85f, 1, 22f, ProjectileKind.Bullet, "#ff8a3d"),
+            U(15, UnitLine.Gun, "CANNONEER", "u_cannoneer", "Cannonballs blast crowds apart.", AttackStyle.Lob, Element.Fire,
+                0.9f, 8f, 1, 30f, ProjectileKind.Cannon, "#ff5a3d", splash: 2.4f, knockback: 2f),
 
-            new UnitClass(16, UnitLine.Holy, 1, "ACOLYTE", "u_acolyte", "Revives fallen soldiers over time.", 1.6f, 0.8f, 1, 24f, ProjectileKind.Holy, 0f, 0, 0f, 0.02f, C("#fff6c2")),
-            new UnitClass(17, UnitLine.Holy, 2, "CLERIC", "u_cleric", "Faster revives.", 1.7f, 1.3f, 1, 25f, ProjectileKind.Holy, 0f, 0, 0f, 0.035f, C("#ffe98a")),
-            new UnitClass(18, UnitLine.Holy, 3, "BISHOP", "u_bishop", "Revives and holy bursts.", 1.8f, 2.0f, 1, 26f, ProjectileKind.Holy, 0.6f, 0, 0f, 0.05f, C("#ffd64d")),
-            new UnitClass(19, UnitLine.Holy, 4, "SAINT", "u_saint", "Miracles: fast revives, big bursts.", 2.0f, 3.0f, 1, 27f, ProjectileKind.Holy, 1.0f, 0, 0f, 0.07f, C("#fffbe0")),
+            U(16, UnitLine.Holy, "ACOLYTE", "u_acolyte", "Calls light down on an enemy. Revives fallen soldiers.", AttackStyle.Smite, Element.Holy,
+                1.4f, 1f, 1, 26f, ProjectileKind.Holy, "#fff6c2", splash: 0.4f, heal: 0.02f),
+            U(17, UnitLine.Holy, "CLERIC", "u_cleric", "Brighter light and faster revives.", AttackStyle.Smite, Element.Holy,
+                1.5f, 1.6f, 1, 28f, ProjectileKind.Holy, "#ffe98a", splash: 0.6f, heal: 0.035f),
+            U(18, UnitLine.Holy, "BISHOP", "u_bishop", "Light bursts on groups and shields the squad.", AttackStyle.Smite, Element.Holy,
+                1.5f, 2.4f, 1, 30f, ProjectileKind.Holy, "#ffd64d", splash: 1f, guard: 0.15f, heal: 0.05f),
+            U(19, UnitLine.Holy, "SAINT", "u_saint", "Pillars of light and miracle revives.", AttackStyle.Smite, Element.Holy,
+                1.6f, 3.6f, 1, 32f, ProjectileKind.Holy, "#fffbe0", splash: 1.4f, guard: 0.2f, heal: 0.07f),
         };
 
         public static UnitClass Get(int id) => All[Mathf.Clamp(id, 0, Count - 1)];
@@ -154,6 +239,45 @@ namespace NumberRoad.Core
                 case UnitLine.Gun: return new Color(1f, 0.62f, 0.2f);
                 case UnitLine.Holy: return new Color(1f, 0.92f, 0.45f);
                 default: return new Color(0.35f, 0.8f, 0.4f);
+            }
+        }
+
+        public static string StyleName(AttackStyle style)
+        {
+            switch (style)
+            {
+                case AttackStyle.Seek: return "SEEKING";
+                case AttackStyle.Spray: return "SPRAY";
+                case AttackStyle.Beam: return "PIERCING";
+                case AttackStyle.Lob: return "AREA";
+                case AttackStyle.Chain: return "CHAIN";
+                case AttackStyle.Smite: return "SKY STRIKE";
+                case AttackStyle.Sweep: return "MELEE SWEEP";
+                default: return "STRAIGHT";
+            }
+        }
+
+        public static string ElementName(Element element)
+        {
+            switch (element)
+            {
+                case Element.Fire: return "FIRE";
+                case Element.Frost: return "FROST";
+                case Element.Lightning: return "LIGHTNING";
+                case Element.Holy: return "HOLY";
+                default: return "PHYSICAL";
+            }
+        }
+
+        public static Color ElementColor(Element element)
+        {
+            switch (element)
+            {
+                case Element.Fire: return new Color(1f, 0.5f, 0.15f);
+                case Element.Frost: return new Color(0.55f, 0.85f, 1f);
+                case Element.Lightning: return new Color(0.7f, 0.75f, 1f);
+                case Element.Holy: return new Color(1f, 0.95f, 0.55f);
+                default: return new Color(0.85f, 0.85f, 0.85f);
             }
         }
 

@@ -40,6 +40,14 @@ namespace NumberRoad.Gameplay
         public int Score;
         /// <summary>Place in the score ranking (1 = best), 0 when outside the top 10.</summary>
         public int Rank;
+        // endless mode
+        public bool Endless;
+        public int EndlessStage;
+        public int EndlessBosses;
+        public int EnemyPowerPercent;
+        public bool NewEndlessBest;
+        /// <summary>Coins the cleared endless stages already paid (shown, not paid again).</summary>
+        public int RunCoins;
     }
 
     /// <summary>
@@ -61,6 +69,8 @@ namespace NumberRoad.Gameplay
         /// <summary>Coins earned while away, shown once on the title screen.</summary>
         public int OfflineCoins { get; private set; }
         public bool PlayingChallenge { get; private set; }
+        /// <summary>The endless run in progress, or null.</summary>
+        public EndlessRun Endless { get; private set; }
 
         /// <summary>Lets <see cref="AutoPilot"/> steer instead of the player (tests, F1 in the editor).</summary>
         public bool AutoPlay { get; set; }
@@ -217,6 +227,12 @@ namespace NumberRoad.Gameplay
                     Session?.TickIdle(dt);
                     break;
                 case GameState.Playing:
+                    if (Session.ChoosingBuff)
+                    {
+                        // the road waits for a card; the bot picks straight away
+                        if (AutoPlay) ChooseBuff(AutoPilot.PickBuff(Session));
+                        break;
+                    }
                     float steer = AutoPlay ? AutoPilot.SteerTowards(Session, dt) : _input.SteerDelta;
                     Session.Tick(dt, steer);
                     MeasurePerformance(unscaled);
@@ -237,7 +253,7 @@ namespace NumberRoad.Gameplay
                 Context.World.Tick(Session.Squad.Z);
                 CrowdRenderer crowd = Context.Crowd;
                 crowd.Eye = Context.Camera.transform.position;
-                crowd.Lod = Context.LowQuality;
+                crowd.LowQuality = Context.LowQuality;
                 crowd.Begin();
                 Session.RenderCrowd(crowd);
                 crowd.End();
@@ -260,7 +276,9 @@ namespace NumberRoad.Gameplay
             _freeze -= unscaled;
             _slow -= unscaled;
             float scale = _freeze > 0f ? 0.03f : _slow > 0f ? 0.3f : 1f;
-            Time.timeScale = TimeScale * scale;
+            // the x2 button speeds up play only (menus, results and the title stay at normal speed)
+            float speed = State == GameState.Playing ? Mathf.Clamp(Save.gameSpeed, 1, 2) : 1f;
+            Time.timeScale = TimeScale * scale * speed;
         }
 
         /// <summary>Auto quality: two slow 2-second windows in a row switch to the light renderer.</summary>
@@ -309,7 +327,11 @@ namespace NumberRoad.Gameplay
 
         // --- Flow ------------------------------------------------------------------------
 
-        void BuildSession(LevelDefinition def)
+        /// <summary>
+        /// Builds the road and the squad. <paramref name="army"/>, <paramref name="weapon"/> and <paramref name="mods"/>
+        /// carry an endless run on into its next stage; a normal level starts from the save.
+        /// </summary>
+        void BuildSession(LevelDefinition def, Army army = null, WeaponStats? weapon = null, RunMods mods = null)
         {
             Time.timeScale = TimeScale;
             _freeze = _slow = 0f;
@@ -320,8 +342,9 @@ namespace NumberRoad.Gameplay
             Context.World.Build(def);
             Context.Camera.SetBackground(Context.World.Sky);
             Context.Weather.Set(Context.World.Biome.Weather);
-            var army = new Army(Save.StartLine, Save.StartSquad);
-            Session = new LevelSession(Context, def, army, Save.StartWeapon);
+            Session = new LevelSession(Context, def, army ?? new Army(Save.StartLine, Save.StartSquad), weapon ?? Save.StartWeapon, mods,
+                Endless != null ? Endless.EnemyPower : 1f, Endless != null ? Endless.Stage : 0);
+            Session.FastMarch = Save.fastMarch;
             Session.Finished += OnSessionFinished;
             Context.Camera.SetBossView(false);
             Context.Camera.SetCrowdZoom(0f);
@@ -342,6 +365,7 @@ namespace NumberRoad.Gameplay
         public void ShowTitle()
         {
             PlayingChallenge = false;
+            Endless = null;
             BuildSession(LevelGenerator.Generate(Save.level));
             State = GameState.Title;
             UI.ShowTitle(Save);
@@ -369,6 +393,60 @@ namespace NumberRoad.Gameplay
             Play();
         }
 
+        /// <summary>Takes a buff card between waves.</summary>
+        public void ChooseBuff(int index)
+        {
+            if (State != GameState.Playing || Session == null || !Session.ChoosingBuff) return;
+            Session.ChooseBuff(index);
+            _input.Reset();
+        }
+
+        public void RerollBuffs()
+        {
+            if (State == GameState.Playing && Session != null) Session.Reroll();
+        }
+
+        /// <summary>
+        /// Endless mode: stage after stage on one run until the squad falls. The army and its power-ups carry on,
+        /// and every boss beaten makes the enemies 1% stronger.
+        /// </summary>
+        public void PlayEndless()
+        {
+            if (State != GameState.Title) return;
+            Endless = new EndlessRun(Save.bestLevel, UnityEngine.Random.Range(1, 1 << 20), Save.endlessBest);
+            BuildSession(LevelGenerator.Generate(Endless.Level, false, Endless.Salt));
+            State = GameState.Title;
+            Play();
+        }
+
+        /// <summary>The boss of an endless stage fell: the same army marches straight on into the next stage.</summary>
+        void NextEndlessStage(LevelSession cleared)
+        {
+            Squad squad = cleared.Squad;
+            Army army = squad.Army.Clone();
+            WeaponStats weapon = squad.Weapon;
+            // the next road is sized for the army that arrives (and the buffs it carries)
+            LevelDefinition def = LevelGenerator.Generate(Endless.Level, false, Endless.Salt, army, squad.Effective(1f));
+            BuildSession(def, army, weapon, cleared.Mods);
+            State = GameState.Title;
+            Play();
+        }
+
+        /// <summary>x2 button: play runs at double speed (kept between runs).</summary>
+        public void ToggleSpeed()
+        {
+            Save.gameSpeed = Save.gameSpeed >= 2 ? 1 : 2;
+            Persist();
+        }
+
+        /// <summary>FAST MARCH button: the squad hurries along while no enemy is near (kept between runs).</summary>
+        public void ToggleFastMarch()
+        {
+            Save.fastMarch = !Save.fastMarch;
+            if (Session != null) Session.FastMarch = Save.fastMarch;
+            Persist();
+        }
+
         public void Pause()
         {
             if (State != GameState.Playing) return;
@@ -388,6 +466,13 @@ namespace NumberRoad.Gameplay
 
         public void Restart()
         {
+            if (Endless != null)
+            {
+                // a new endless run from the first stage
+                ShowTitle();
+                PlayEndless();
+                return;
+            }
             if (PlayingChallenge && Daily.ChallengeReady(Save, Daily.Today))
             {
                 PlayChallenge();
@@ -472,6 +557,12 @@ namespace NumberRoad.Gameplay
             Save.statMaxArmy = Mathf.Max(Save.statMaxArmy, s.Squad.Peak);
             Save.statBestCombo = Mathf.Max(Save.statBestCombo, st.BestCombo);
 
+            if (Endless != null)
+            {
+                EndlessStageOver(s, result, won);
+                return;
+            }
+
             if (won)
             {
                 Save.statWins++;
@@ -502,20 +593,60 @@ namespace NumberRoad.Gameplay
             UI.ShowResult(result, Save);
         }
 
+        /// <summary>Endless: a cleared stage leads straight into the next one; a lost one ends the run.</summary>
+        void EndlessStageOver(LevelSession s, RunResult result, bool won)
+        {
+            EndlessRun run = Endless;
+            if (won)
+            {
+                Save.statBosses++;
+                if (_coupon) Save.doubleCoinsNextRun = false;
+                run.StageCleared(s.Stats.Kills, result.TotalCoins, s.Squad.Peak, s.Stats.BestCombo);
+                Save.endlessBest = Mathf.Max(Save.endlessBest, run.Bosses);
+                Save.lastSeenUnix = Daily.NowUnix;
+                Persist();
+                NextEndlessStage(s);
+                return;
+            }
+
+            Save.statLosses++;
+            result.CanRevive = s.CanRevive;
+            result.Endless = true;
+            result.EndlessStage = run.Stage;
+            result.EndlessBosses = run.Bosses;
+            result.EnemyPowerPercent = run.PowerPercent;
+            result.NewEndlessBest = run.NewBest;
+            result.RunCoins = run.Coins;
+            RecordRanking(result, s);
+            Save.lastSeenUnix = Daily.NowUnix;
+            Persist();
+
+            LastResult = result;
+            State = GameState.Result;
+            UI.ShowResult(result, Save);
+        }
+
         void RecordRanking(RunResult result, LevelSession s)
         {
-            result.Score = Ranking.Score(s.Stats.Kills, s.Squad.Peak, s.Stats.BestCombo, result.Level, result.Won, result.Stars);
-            _runEntry = _runEntry ?? new RankEntry();
-            _runEntry.score = result.Score;
-            _runEntry.level = result.Level;
-            _runEntry.kills = s.Stats.Kills;
-            _runEntry.army = s.Squad.Peak;
-            _runEntry.combo = s.Stats.BestCombo;
-            _runEntry.won = result.Won;
-            _runEntry.daily = result.Daily;
-            _runEntry.unix = Daily.NowUnix;
-            Ranking.Record(Save, _runEntry);
-            result.Rank = Ranking.PlaceOf(Save, _runEntry, RankMetric.Score);
+            // an endless run counts everything since its first stage
+            EndlessRun run = Endless;
+            int kills = s.Stats.Kills + (run != null ? run.Kills : 0);
+            int army = Mathf.Max(s.Squad.Peak, run != null ? run.Peak : 0);
+            int combo = Mathf.Max(s.Stats.BestCombo, run != null ? run.BestCombo : 0);
+            result.Score = Ranking.Score(kills, army, combo, result.Level, result.Won, result.Stars, run != null ? run.Bosses : 0);
+            RankEntry entry = run != null ? run.Entry ?? (run.Entry = new RankEntry()) : _runEntry ?? (_runEntry = new RankEntry());
+            entry.score = result.Score;
+            entry.level = result.Level;
+            entry.kills = kills;
+            entry.army = army;
+            entry.combo = combo;
+            entry.won = result.Won;
+            entry.daily = result.Daily;
+            entry.endless = run != null;
+            entry.stage = run != null ? run.Stage : 0;
+            entry.unix = Daily.NowUnix;
+            Ranking.Record(Save, entry);
+            result.Rank = Ranking.PlaceOf(Save, entry, RankMetric.Score);
         }
 
         /// <summary>Gem revive from the defeat screen: the same run continues.</summary>
@@ -588,6 +719,18 @@ namespace NumberRoad.Gameplay
             Context.Audio.Play(Sfx.Gem);
             UI.RefreshSave(Save);
             return true;
+        }
+
+        /// <summary>Collects every reward that is ready (awards, the daily bonus, the lucky draw) in one go.</summary>
+        public RewardSummary ClaimAllRewards()
+        {
+            RewardSummary summary = Rewards.ClaimAll(Save, Daily.Today, CheapestUpgrade);
+            if (!summary.Any) return summary;
+            Persist();
+            Context.Audio.Play(Sfx.Chest);
+            Context.Audio.Play(summary.Gems > 0 ? Sfx.Gem : Sfx.Coin, 0.8f);
+            UI.RefreshSave(Save);
+            return summary;
         }
 
         public Prize ClaimLogin()

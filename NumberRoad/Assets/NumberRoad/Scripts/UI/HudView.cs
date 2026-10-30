@@ -8,16 +8,25 @@ using UnityEngine.UI;
 namespace NumberRoad.UI
 {
     /// <summary>
-    /// In-level HUD: level, progress and army make-up, coins, boss bar, combo counter, the VOLLEY button,
-    /// READY... GO!, announcement banners and first-time tips.
+    /// In-level HUD: level and wave, progress (with the wave marks) and army make-up, coins, boss bar, combo
+    /// counter, the VOLLEY button, READY... GO!, announcement banners, first-time tips and the buff cards
+    /// dealt between waves.
     /// </summary>
     sealed class HudView
     {
         const float BannerTime = 1.9f;
         const float HintTime = 4.2f;
+        const int MaxWaveMarks = 6;
 
         public readonly GameObject Root;
         readonly Text _level;
+        readonly Text _wave;
+        readonly RectTransform[] _waveMarks = new RectTransform[MaxWaveMarks];
+        readonly BuffPanel _buffs;
+        readonly Button _speed;
+        readonly Text _speedText;
+        readonly Button _march;
+        readonly Text _marchText;
         readonly Text _coins;
         readonly Text _weapon;
         readonly Text _bossHp;
@@ -53,6 +62,9 @@ namespace NumberRoad.UI
         float _barClock;
         int _shownSkill = -1;
         int _shownBossHp = -1;
+        int _shownWave = -1;
+        int _shownSpeed = -1;
+        int _shownMarch = -1;
         WeaponStats _shownWeapon;
 
         public HudView(RectTransform parent, GameRoot game)
@@ -64,6 +76,19 @@ namespace NumberRoad.UI
             UIFactory.Place(levelPill.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -26f), new Vector2(190f, 88f));
             _level = UIFactory.Text(levelPill.rectTransform, "Text", "LV 1", 46, Color.white, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 2f);
             UIFactory.Fill(_level.rectTransform);
+            _level.rectTransform.offsetMin = new Vector2(8f, 0f);
+            _level.rectTransform.offsetMax = new Vector2(-8f, 0f);
+            FitText(_level, 26);
+            Image wavePill = UIFactory.Image(root, "WavePill", new Color(0f, 0f, 0f, 0.42f), GameAssets.RoundedSprite);
+            UIFactory.Place(wavePill.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -122f), new Vector2(190f, 52f));
+            _wave = UIFactory.Text(wavePill.rectTransform, "Text", "WAVE 1/3", 30, Color.white, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 2f);
+            UIFactory.Fill(_wave.rectTransform);
+
+            // x2 game speed and FAST MARCH (both kept between runs)
+            _speed = UIFactory.Button(root, "Speed", "x1", UIFactory.Blue, 46, game.ToggleSpeed, out _speedText);
+            UIFactory.Place((RectTransform)_speed.transform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -186f), new Vector2(112f, 86f));
+            _march = UIFactory.Button(root, "March", "FAST\nMARCH", UIFactory.Blue, 26, game.ToggleFastMarch, out _marchText);
+            UIFactory.Place((RectTransform)_march.transform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(146f, -186f), new Vector2(150f, 86f));
 
             // sits between the level pill (left) and the coins + pause button (right) on a 1080-wide phone
             Image track = UIFactory.Image(root, "Progress", new Color(0f, 0f, 0f, 0.38f), GameAssets.RoundedSprite);
@@ -74,6 +99,16 @@ namespace NumberRoad.UI
             _progressFill.anchorMax = new Vector2(0.05f, 1f);
             _progressFill.offsetMin = Vector2.zero;
             _progressFill.offsetMax = Vector2.zero;
+            // where each wave ends (the road stops there for a buff card)
+            for (int i = 0; i < MaxWaveMarks; i++)
+            {
+                Image mark = UIFactory.Image(track.rectTransform, "Wave" + i, new Color(1f, 1f, 1f, 0.85f));
+                _waveMarks[i] = mark.rectTransform;
+                _waveMarks[i].anchorMin = new Vector2(0f, 0.15f);
+                _waveMarks[i].anchorMax = new Vector2(0f, 0.85f);
+                _waveMarks[i].sizeDelta = new Vector2(5f, 0f);
+                mark.gameObject.SetActive(false);
+            }
             Text bossMark = UIFactory.Text(track.rectTransform, "BossMark", "BOSS", 26, Color.white, TextAnchor.MiddleRight, UIFactory.Red, 2f);
             UIFactory.Place(bossMark.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-12f, 0f), new Vector2(110f, 44f));
 
@@ -184,6 +219,9 @@ namespace NumberRoad.UI
             _skillButton = skill.gameObject.AddComponent<Button>();
             _skillButton.targetGraphic = skillBack;
             _skillButton.onClick.AddListener(() => _session?.UseSkill());
+
+            // drawn last: covers the rest of the HUD while the cards are up
+            _buffs = new BuffPanel(root, game);
         }
 
         static bool Same(WeaponStats a, WeaponStats b) =>
@@ -206,6 +244,9 @@ namespace NumberRoad.UI
             _shownCombo = -1;
             _shownSkill = -1;
             _shownBossHp = -1;
+            _shownWave = -1;
+            _shownSpeed = -1;
+            _shownMarch = -1;
             _weaponText = null;
             _clock = 0f;
             _bannerClock = -1f;
@@ -213,7 +254,19 @@ namespace NumberRoad.UI
             _bannerGroup.alpha = 0f;
             _hintGroup.alpha = 0f;
             Root.SetActive(true);
-            _level.text = session.Def.daily ? "DAILY" : "LV " + session.Def.level;
+            _level.text = session.EndlessStage > 0 ? "STAGE " + session.EndlessStage : session.Def.daily ? "DAILY" : "LV " + session.Def.level;
+            LevelDefinition def = session.Def;
+            for (int i = 0; i < MaxWaveMarks; i++)
+            {
+                bool on = i < def.waveEnds.Count;
+                _waveMarks[i].gameObject.SetActive(on);
+                if (!on) continue;
+                // the fill runs from 6% to 100% of the track (see Tick)
+                float x = Mathf.Lerp(0.06f, 1f, Mathf.Clamp01(def.waveEnds[i] / Mathf.Max(1f, def.length)));
+                _waveMarks[i].anchorMin = new Vector2(x, 0.15f);
+                _waveMarks[i].anchorMax = new Vector2(x, 0.85f);
+                _waveMarks[i].anchoredPosition = Vector2.zero;
+            }
             Tick(0f);
         }
 
@@ -260,6 +313,16 @@ namespace NumberRoad.UI
                 }
             }
 
+            int wave = s.Phase >= SessionPhase.BossFight ? 99 : s.Wave;
+            if (wave != _shownWave)
+            {
+                _shownWave = wave;
+                _wave.text = wave == 99 ? "BOSS" : "WAVE " + (wave + 1) + "/" + s.Waves;
+                _wave.color = wave == 99 || wave == s.Waves - 1 ? new Color(1f, 0.55f, 0.45f) : Color.white;
+            }
+            _buffs.Tick(s, dt);
+            TickSpeedButtons();
+
             TickCombo(dt);
             TickSkill();
             TickCountdown();
@@ -269,7 +332,7 @@ namespace NumberRoad.UI
             float dragTarget = s.HasMoved || s.IsOver ? 0f : 0.75f + Mathf.Sin(_clock * 4f) * 0.25f;
             _dragHint.alpha = Mathf.MoveTowards(_dragHint.alpha, dragTarget, dt * 3f);
 
-            WeaponStats w = s.Squad.Weapon;
+            WeaponStats w = s.Squad.Effective(1f);
             if (_weaponText == null || !Same(w, _shownWeapon))
             {
                 CultureInfo c = CultureInfo.InvariantCulture;
@@ -278,6 +341,25 @@ namespace NumberRoad.UI
                               "   MULTI " + w.multiShot + "   CRIT " + Mathf.RoundToInt(w.critChance * 100f) + "%";
                 _weapon.text = _weaponText;
             }
+        }
+
+        void TickSpeedButtons()
+        {
+            int speed = _save.gameSpeed;
+            if (speed != _shownSpeed)
+            {
+                _shownSpeed = speed;
+                _speedText.text = "x" + speed;
+                UIFactory.SetButtonColor(_speed, speed > 1 ? UIFactory.Gold : UIFactory.Blue);
+            }
+            int march = _session.FastMarch ? 1 : 0;
+            if (march != _shownMarch)
+            {
+                _shownMarch = march;
+                UIFactory.SetButtonColor(_march, march > 0 ? UIFactory.Gold : UIFactory.Blue);
+            }
+            // the label flickers while the squad is actually hurrying
+            _marchText.color = _session.Rushing ? Color.Lerp(Color.white, new Color(1f, 0.95f, 0.6f), 0.5f + 0.5f * Mathf.Sin(_clock * 14f)) : Color.white;
         }
 
         void TickCombo(float dt)

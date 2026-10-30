@@ -144,10 +144,15 @@ namespace NumberRoad.Presentation
         int _poolUsed;
         bool _linear;
 
-        /// <summary>Low quality: far characters are drawn as their body only.</summary>
-        public bool Lod;
-        public float LodDistance = 32f;
+        /// <summary>Slow device: characters lose their legs closer to the camera.</summary>
+        public bool LowQuality;
         public Vector3 Eye;
+
+        /// <summary>
+        /// Beyond this distance from the camera characters are drawn without legs - too small to notice there.
+        /// Only the picture changes with the device; the game itself never does.
+        /// </summary>
+        public float LegDistance => LowQuality ? 30f : 58f;
         public int InstancesThisFrame { get; private set; }
 
         public void Begin()
@@ -172,7 +177,8 @@ namespace NumberRoad.Presentation
                 _buckets[model.Id] = buckets;
             }
 
-            bool far = Lod && (root.GetColumn(3) - (Vector4)Eye).sqrMagnitude > LodDistance * LodDistance;
+            float legDistance = LegDistance;
+            bool far = (root.GetColumn(3) - (Vector4)Eye).sqrMagnitude > legDistance * legDistance;
             Vector4 color = _linear ? (Vector4)tint.linear : (Vector4)tint;
             float s = Mathf.Sin(pose.Phase);
 

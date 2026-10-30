@@ -146,6 +146,13 @@ namespace NumberRoad.Core
         /// <summary>Enemy type id introduced at this level (shown with a NEW ENEMY banner), or -1.</summary>
         public int introduces = -1;
 
+        /// <summary>
+        /// Number of waves (the last one ends with the boss). <see cref="waveEnds"/> holds where each earlier wave
+        /// ends: passing it opens the buff choice.
+        /// </summary>
+        public int waves = 1;
+        public readonly List<float> waveEnds = new List<float>();
+
         public int bossType;
         public float bossHp;
         public int bossSmash;

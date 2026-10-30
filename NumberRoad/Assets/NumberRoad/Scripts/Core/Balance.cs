@@ -10,10 +10,17 @@ namespace NumberRoad.Core
         public const float SquadMaxX = 3.2f;
         public const float SoldierEdgeX = 3.7f;
         public const float MarchSpeed = 5f;
+        /// <summary>FAST MARCH: how much faster the squad walks while no enemy is near.</summary>
+        public const float FastMarch = 1.8f;
         public const float SpawnAhead = 64f;
         public const float DespawnBehind = 14f;
-        public const float EnemyWakeDistance = 25f;
+        /// <summary>Hordes start their charge this far ahead, just inside the squad's reach, so the whole crowd pours in under fire.</summary>
+        public const float EnemyWakeDistance = 32f;
         public const float BossArenaDistance = 24f;
+        /// <summary>Horde rows become live enemies only within this distance ahead; further back they are just a count.</summary>
+        public const float SpawnReach = 86f;
+        /// <summary>Walking enemies further ahead than this are updated every other frame (too far to touch anything).</summary>
+        public const float FarUpdateDistance = 34f;
 
         // --- Squad -----------------------------------------------------------
         public const int MaxSquad = 999999;
@@ -42,8 +49,15 @@ namespace NumberRoad.Core
 
         // --- Enemies ---------------------------------------------------------
 
-        /// <summary>Enemies in one horde wave: exponential in the level (18 at Lv1, ~490 at Lv20, capped from Lv26).</summary>
-        public static int HordeSize(int level) => Mathf.RoundToInt(Mathf.Min(MaxHordeWave, 18f * Mathf.Pow(1.19f, Mathf.Clamp(level, 1, 400) - 1)));
+        /// <summary>Enemies in one horde: a crowd from the very first level (200), growing exponentially (capped from Lv19).</summary>
+        public static int HordeSize(int level) => Mathf.RoundToInt(Mathf.Min(MaxHordeWave, 200f * Mathf.Pow(1.115f, Mathf.Clamp(level, 1, 400) - 1)));
+
+        /// <summary>
+        /// HP of a basic horde enemy relative to the expected hit (times the level's difficulty, 0.6 to 1): one to one
+        /// and a half hits, so a horde lasts long enough to charge in, while strong hits - crits, heavy classes,
+        /// buffs - carry on through several (see <see cref="Combat.CarryOver"/>).
+        /// </summary>
+        public const float SwarmToughness = 1.6f;
 
         /// <summary>
         /// Soldiers one enemy knocks out when it reaches a big army: armies grow into the hundreds of thousands
@@ -62,8 +76,18 @@ namespace NumberRoad.Core
         // --- Combo / skill -----------------------------------------------------
         public const float ComboWindow = 1.5f;
 
-        /// <summary>Coin multiplier from the kill combo: +1% per kill, up to x3.</summary>
-        public static float ComboMultiplier(int combo) => 1f + Mathf.Min(combo, 200) / 100f;
+        /// <summary>Coin multiplier from the kill combo: x2 at a 300 combo (hordes are hundreds strong).</summary>
+        public static float ComboMultiplier(int combo) => 1f + Mathf.Min(combo, 300) / 300f;
+
+        /// <summary>
+        /// Coins one ordinary kill is worth: a fraction of a coin, since hordes are hundreds strong from the first
+        /// level. It grows slowly; the bigger hordes and the coin upgrade make the total per level keep pace with
+        /// the upgrade prices.
+        /// </summary>
+        public static float KillValue(int level) => Mathf.Min(1f, 0.07f * Mathf.Pow(1.035f, Mathf.Max(1, level) - 1));
+
+        /// <summary>Seconds the expected army needs to bring the boss down: long enough for him to reach the front line.</summary>
+        public static float BossSeconds(int level) => 9f + Mathf.Min(Mathf.Max(1, level), 25) * 0.3f;
 
         public static int SkillCharge(int level, int skillUpgrade) => Mathf.RoundToInt((40 + 6 * Mathf.Max(1, level)) * Mathf.Pow(0.93f, skillUpgrade));
 

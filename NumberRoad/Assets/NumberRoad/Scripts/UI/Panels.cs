@@ -10,8 +10,8 @@ namespace NumberRoad.UI
 {
     /// <summary>
     /// Modal panels opened from the title screen: settings, barracks (20 classes), bestiary, awards, statistics,
-    /// the daily login bonus, the lucky draw, the daily challenge and the "welcome back" coins.
-    /// Each panel is built when opened and destroyed when closed.
+    /// the daily login bonus, the lucky draw, the daily challenge, the "welcome back" coins and the CLAIM ALL
+    /// summary. Each panel is built when opened and destroyed when closed.
     /// </summary>
     sealed class Panels
     {
@@ -257,7 +257,7 @@ namespace NumberRoad.UI
                 Color medal = i == 0 ? UIFactory.GoldDark : i == 1 ? UIFactory.Gray : i == 2 ? new Color32(176, 110, 60, 255) : UIFactory.Ink;
                 Label(r, "#" + (i + 1), 46, medal, TextAnchor.MiddleCenter, new Vector2(0f, 0.5f), new Vector2(16f, 0f), new Vector2(110f, 80f), new Vector2(0f, 0.5f));
                 Label(r, Fmt.Num(Ranking.Value(e, tab)), 46, UIFactory.Ink, TextAnchor.MiddleLeft, new Vector2(0f, 0.5f), new Vector2(140f, 10f), new Vector2(330f, 60f), new Vector2(0f, 0.5f));
-                string where = (e.daily ? "DAILY " : "LEVEL ") + e.level + (e.won ? "  CLEAR" : "");
+                string where = e.endless ? "ENDLESS STAGE " + e.stage : (e.daily ? "DAILY " : "LEVEL ") + e.level + (e.won ? "  CLEAR" : "");
                 Label(r, where, 24, e.won ? UIFactory.Green : UIFactory.Gray, TextAnchor.MiddleLeft, new Vector2(0f, 0.5f), new Vector2(142f, -30f), new Vector2(330f, 34f), new Vector2(0f, 0.5f));
                 string detail = tab == RankMetric.Score
                     ? "ARMY " + Fmt.Num(e.army) + "   COMBO " + Fmt.Num(e.combo)
@@ -279,7 +279,7 @@ namespace NumberRoad.UI
             {
                 var line = (UnitLine)l;
                 bool open = Units.IsUnlocked(line, Save.bestLevel);
-                RectTransform row = UIFactory.Item(list, "Line" + l, new Vector2(840f, 360f));
+                RectTransform row = UIFactory.Item(list, "Line" + l, new Vector2(840f, 410f));
                 Image back = UIFactory.Image(row, "Back", Color.Lerp(Units.LineColor(line), Color.white, 0.75f), GameAssets.RoundedSprite);
                 UIFactory.Fill(back.rectTransform);
                 Label(row, Units.LineName(line) + " LINE" + (open ? string.Empty : "  -  UNLOCKS AT LEVEL " + Units.UnlockLevel(line)),
@@ -292,10 +292,17 @@ namespace NumberRoad.UI
                     float x = 112f + t * 205f;
                     Portrait(row, u.Model, known, topLeft, new Vector2(x, -58f), 150f, hang);
                     Label(row, known ? u.Name : "???", 28, UIFactory.Ink, TextAnchor.MiddleCenter, topLeft, new Vector2(x, -210f), new Vector2(200f, 36f), hang);
+                    if (known)
+                    {
+                        // how it attacks, in the colour of its element
+                        string how = Units.StyleName(u.Style) + (u.Element != Element.Physical ? "  " + Units.ElementName(u.Element) : string.Empty);
+                        Label(row, how, 21, u.Element == Element.Physical ? UIFactory.Ink : Color.Lerp(Units.ElementColor(u.Element), UIFactory.Ink, 0.45f), TextAnchor.MiddleCenter, topLeft,
+                            new Vector2(x, -248f), new Vector2(200f, 30f), hang);
+                    }
                     string stats = known
                         ? "DMG " + u.Damage.ToString("0.#", CultureInfo.InvariantCulture) + "  RATE " + u.Rate.ToString("0.#", CultureInfo.InvariantCulture) + "\n" + u.Description
                         : t > 0 ? "CLASS UP TO MEET" : open ? "PICK IT AT THE START" : "UNLOCKS AT LEVEL " + Units.UnlockLevel(line);
-                    Label(row, stats, 20, UIFactory.Gray, TextAnchor.UpperCenter, topLeft, new Vector2(x, -250f), new Vector2(194f, 100f), hang);
+                    Label(row, stats, 20, UIFactory.Gray, TextAnchor.UpperCenter, topLeft, new Vector2(x, known ? -282f : -250f), new Vector2(194f, 120f), hang);
                     if (t < Units.Tiers - 1)
                     {
                         Label(row, ">", 40, UIFactory.Gray, TextAnchor.MiddleCenter, topLeft, new Vector2(x + 102f, -108f), new Vector2(30f, 50f), hang);
@@ -306,9 +313,10 @@ namespace NumberRoad.UI
 
         // --- Bestiary ------------------------------------------------------------------
 
-        void BestiaryRow(RectTransform list, string key, string model, bool known, string name, string description, string count, Color tint)
+        void BestiaryRow(RectTransform list, string key, string model, bool known, string name, string description, string count, Color tint,
+            string weakness = null)
         {
-            RectTransform row = UIFactory.Item(list, key, new Vector2(840f, 150f));
+            RectTransform row = UIFactory.Item(list, key, new Vector2(840f, weakness != null ? 178f : 150f));
             Image back = UIFactory.Image(row, "Back", tint, GameAssets.RoundedSprite);
             UIFactory.Fill(back.rectTransform);
             var topLeft = new Vector2(0f, 1f);
@@ -316,6 +324,18 @@ namespace NumberRoad.UI
             Label(row, name, 34, UIFactory.Ink, TextAnchor.MiddleLeft, topLeft, new Vector2(160f, -14f), new Vector2(420f, 44f));
             Label(row, description, 25, UIFactory.Gray, TextAnchor.UpperLeft, topLeft, new Vector2(160f, -62f), new Vector2(660f, 80f));
             if (count != null) Label(row, count, 25, UIFactory.Blue, TextAnchor.MiddleRight, new Vector2(1f, 1f), new Vector2(-16f, -14f), new Vector2(250f, 44f));
+            if (!string.IsNullOrEmpty(weakness))
+            {
+                Label(row, weakness, 23, new Color(0.75f, 0.32f, 0.1f), TextAnchor.MiddleLeft, Vector2.zero, new Vector2(160f, 10f), new Vector2(660f, 32f));
+            }
+        }
+
+        static string Weakness(ElementMask weak, ElementMask resist)
+        {
+            string text = string.Empty;
+            if (weak != ElementMask.None) text += "WEAK: " + Combat.Names(weak);
+            if (resist != ElementMask.None) text += (text.Length > 0 ? "     " : string.Empty) + "RESISTS: " + Combat.Names(resist);
+            return text;
         }
 
         public void ShowBestiary()
@@ -326,7 +346,7 @@ namespace NumberRoad.UI
                 bool known = Save.HasSeenEnemy(t.Id);
                 BestiaryRow(list, t.Key, t.Model, known, known ? t.Name : "???",
                     known ? t.Description : "Not met yet. Appears from level " + t.Unlock + ".",
-                    known ? "DEFEATED " + Fmt.Num(Save.KillsOf(t.Id)) : null, new Color(0f, 0f, 0f, 0.06f));
+                    known ? "DEFEATED " + Fmt.Num(Save.KillsOf(t.Id)) : null, new Color(0f, 0f, 0f, 0.06f), known ? Weakness(t.Weak, t.Resist) : null);
             }
             RectTransform header = UIFactory.Item(list, "BossHeader", new Vector2(840f, 70f));
             Label(header, "BOSSES", 40, UIFactory.Red, TextAnchor.MiddleCenter, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(800f, 60f));
@@ -335,7 +355,7 @@ namespace NumberRoad.UI
                 bool met = Save.bestLevel > b.Id + 1 || Save.statBosses > b.Id;
                 BestiaryRow(list, b.Key, b.Model, met, met ? b.Name : "???",
                     met ? b.Description : "Guards level " + (b.Id + 1) + " and every " + Enemies.Bosses.Length + "th level after it.",
-                    null, new Color(1f, 0.2f, 0.1f, 0.08f));
+                    null, new Color(1f, 0.2f, 0.1f, 0.08f), met ? Weakness(b.Weak, b.Resist) : null);
             }
         }
 
@@ -346,6 +366,14 @@ namespace NumberRoad.UI
             RectTransform list = OpenList("AWARDS", ShowAchievements);
             var topLeft = new Vector2(0f, 1f);
             var bottomLeft = new Vector2(0f, 0f);
+            int readyNow = Rewards.ReadyCount(Save, Daily.Today);
+            if (readyNow > 0)
+            {
+                RectTransform head = UIFactory.Item(list, "ClaimAll", new Vector2(840f, 130f));
+                Button all = UIFactory.Button(head, "ClaimAll", "CLAIM ALL (" + readyNow + ")", UIFactory.Green, 46, ClaimAll, out _);
+                UIFactory.Place((RectTransform)all.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(620f, 116f));
+                all.gameObject.AddComponent<Pulse>();
+            }
             foreach (Achievement a in Achievements.All)
             {
                 long progress = Achievements.Progress(Save, a.Metric);
@@ -373,6 +401,42 @@ namespace NumberRoad.UI
                 claim.interactable = ready;
                 if (ready) claim.gameObject.AddComponent<Pulse>();
             }
+        }
+
+        /// <summary>CLAIM ALL: collects every reward that is ready and shows what came in.</summary>
+        public void ClaimAll()
+        {
+            RewardSummary s = _game.ClaimAllRewards();
+            RectTransform body = Open("REWARDS", new Vector2(860f, 860f), null);
+            var top = new Vector2(0.5f, 1f);
+            if (!s.Any)
+            {
+                Label(body, "NOTHING TO CLAIM RIGHT NOW.\nPLAY A LEVEL AND COME BACK!", 38, UIFactory.Ink, TextAnchor.MiddleCenter, top, new Vector2(0f, -120f),
+                    new Vector2(780f, 200f));
+                Big(body, "OK", UIFactory.Blue, CloseAll, new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(420f, 140f), out _);
+                return;
+            }
+
+            // the totals, big
+            float y = -70f;
+            if (s.Coins > 0)
+            {
+                RectTransform coin = UIFactory.Coin(body, 84f);
+                UIFactory.Place(coin, top, new Vector2(0.5f, 0.5f), new Vector2(-170f, y), new Vector2(84f, 84f));
+                Label(body, "+" + Fmt.Coins(s.Coins), 66, UIFactory.GoldDark, TextAnchor.MiddleLeft, top, new Vector2(110f, y), new Vector2(460f, 90f),
+                    new Vector2(0.5f, 0.5f));
+                y -= 110f;
+            }
+            if (s.Gems > 0)
+            {
+                RectTransform gem = UIFactory.Gem(body, 80f);
+                UIFactory.Place(gem, top, new Vector2(0.5f, 0.5f), new Vector2(-170f, y), new Vector2(80f, 80f));
+                Label(body, "+" + s.Gems, 66, UIFactory.Purple, TextAnchor.MiddleLeft, top, new Vector2(110f, y), new Vector2(460f, 90f), new Vector2(0.5f, 0.5f));
+                y -= 110f;
+            }
+            // where it came from
+            Label(body, string.Join("\n", s.Lines), 34, UIFactory.Ink, TextAnchor.UpperCenter, top, new Vector2(0f, y - 30f), new Vector2(780f, 220f));
+            Big(body, "GREAT!", UIFactory.Green, CloseAll, new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(460f, 140f), out _);
         }
 
         // --- Stats -----------------------------------------------------------------------
@@ -552,6 +616,26 @@ namespace NumberRoad.UI
                 Label(body, "DONE FOR TODAY - COME BACK TOMORROW!", 36, UIFactory.Green, TextAnchor.MiddleCenter, top, new Vector2(0f, -380f), new Vector2(800f, 60f));
                 Big(body, "OK", UIFactory.Blue, CloseAll, new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(420f, 140f), out _);
             }
+        }
+
+        // --- Endless ------------------------------------------------------------------------
+
+        public void ShowEndless()
+        {
+            RectTransform body = Open("ENDLESS", new Vector2(900f, 960f), null);
+            var top = new Vector2(0.5f, 1f);
+            Label(body, "HOW FAR CAN YOUR ARMY GO?", 44, UIFactory.Purple, TextAnchor.MiddleCenter, top, new Vector2(0f, -30f), new Vector2(820f, 60f));
+            Label(body, "One run, stage after stage, starting at level " + Mathf.Max(1, Save.bestLevel) + ".\n" +
+                        "Your army, power gates and power-ups carry on to the next stage.\n" +
+                        "Every boss you beat makes the enemies 1% stronger.",
+                34, UIFactory.Ink, TextAnchor.UpperCenter, top, new Vector2(0f, -120f), new Vector2(800f, 260f));
+            string best = Save.endlessBest > 0 ? "BEST: " + Save.endlessBest + (Save.endlessBest == 1 ? " BOSS" : " BOSSES") : "NO RECORD YET";
+            Label(body, best, 44, UIFactory.GoldDark, TextAnchor.MiddleCenter, top, new Vector2(0f, -430f), new Vector2(800f, 64f));
+            Big(body, "START", new Color32(120, 70, 200, 255), () =>
+            {
+                CloseAll();
+                _game.PlayEndless();
+            }, new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(520f, 150f), out _).gameObject.AddComponent<Pulse>();
         }
 
         // --- Welcome back -------------------------------------------------------------------

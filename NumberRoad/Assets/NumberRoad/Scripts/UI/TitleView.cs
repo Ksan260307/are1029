@@ -9,9 +9,10 @@ using UnityEngine.UI;
 namespace NumberRoad.UI
 {
     /// <summary>
-    /// Home screen, top to bottom: currencies, logo, the level picker (&lt; LEVEL N &gt;, tap for the level list),
-    /// region and stars, the next unlock, two menu columns (left: collection and records, right: rewards),
-    /// PLAY, the starting line picker and eight upgrade cards (affordable ones glow).
+    /// Home screen, top to bottom: currencies (and CLAIM ALL while rewards wait), logo, the level picker
+    /// (&lt; LEVEL N &gt;, tap for the level list), region and stars, the next unlock, two menu columns (left:
+    /// collection and records, right: rewards and modes), PLAY, the starting line picker and eight upgrade cards
+    /// (affordable ones glow).
     /// </summary>
     sealed class TitleView
     {
@@ -36,6 +37,8 @@ namespace NumberRoad.UI
         readonly GameObject _luckyBadge;
         readonly GameObject _challengeBadge;
         readonly Text _challengeText;
+        readonly GameObject _claimAll;
+        readonly Text _claimBadge;
         float _clock;
 
         public TitleView(RectTransform parent, GameRoot game, Panels panels)
@@ -48,6 +51,13 @@ namespace NumberRoad.UI
             // --- top bar
             Button settings = UIFactory.Button(root, "Settings", "SETTINGS", UIFactory.Blue, 34, panels.ShowSettings, out _);
             UIFactory.Place((RectTransform)settings.transform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -24f), new Vector2(230f, 96f));
+            // only there while something is waiting to be collected
+            Button claimAll = UIFactory.Button(root, "ClaimAll", "CLAIM ALL", UIFactory.Green, 32, panels.ClaimAll, out _);
+            var claimRect = (RectTransform)claimAll.transform;
+            UIFactory.Place(claimRect, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -128f), new Vector2(230f, 88f));
+            claimAll.gameObject.AddComponent<Pulse>().Amount = 0.05f;
+            _claimBadge = UIFactory.Badge(claimRect, out _);
+            _claimAll = claimAll.gameObject;
             RectTransform coins = UIRoot.CoinPill(root, "Coins", out _coins);
             UIFactory.Place(coins, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -24f), new Vector2(320f, 92f));
             RectTransform gems = UIRoot.GemPill(root, "Gems", out _gems);
@@ -97,17 +107,18 @@ namespace NumberRoad.UI
             _unlockFill.offsetMax = Vector2.zero;
 
             // --- left column: collection and records; right column: rewards
-            SideButton(root, "Units", "UNITS", 0f, 170f, UIFactory.Blue, panels.ShowBarracks, out _);
-            SideButton(root, "Enemies", "ENEMIES", 0f, 66f, UIFactory.Blue, panels.ShowBestiary, out _);
-            SideButton(root, "Ranking", "RANKING", 0f, -38f, UIFactory.Blue, panels.ShowRanking, out _);
-            SideButton(root, "Stats", "STATS", 0f, -142f, UIFactory.Blue, panels.ShowStats, out _);
-            RectTransform daily = SideButton(root, "Daily", "DAILY", 1f, 170f, UIFactory.Green, panels.ShowDaily, out _);
+            SideButton(root, "Units", "UNITS", 0f, 193f, UIFactory.Blue, panels.ShowBarracks, out _);
+            SideButton(root, "Enemies", "ENEMIES", 0f, 89f, UIFactory.Blue, panels.ShowBestiary, out _);
+            SideButton(root, "Ranking", "RANKING", 0f, -15f, UIFactory.Blue, panels.ShowRanking, out _);
+            SideButton(root, "Stats", "STATS", 0f, -119f, UIFactory.Blue, panels.ShowStats, out _);
+            RectTransform daily = SideButton(root, "Daily", "DAILY", 1f, 193f, UIFactory.Green, panels.ShowDaily, out _);
             UIFactory.Badge(daily, out _dailyBadge).text = "!";
-            RectTransform lucky = SideButton(root, "Lucky", "LUCKY", 1f, 66f, UIFactory.Gold, panels.ShowLucky, out _);
+            RectTransform lucky = SideButton(root, "Lucky", "LUCKY", 1f, 89f, UIFactory.Gold, panels.ShowLucky, out _);
             UIFactory.Badge(lucky, out _luckyBadge).text = "!";
-            RectTransform challenge = SideButton(root, "Challenge", "CHALLENGE", 1f, -38f, UIFactory.Red, panels.ShowChallenge, out _challengeText);
+            RectTransform challenge = SideButton(root, "Challenge", "CHALLENGE", 1f, -15f, UIFactory.Red, panels.ShowChallenge, out _challengeText);
             UIFactory.Badge(challenge, out _challengeBadge).text = "!";
-            RectTransform awards = SideButton(root, "Awards", "AWARDS", 1f, -142f, UIFactory.Purple, panels.ShowAchievements, out _);
+            SideButton(root, "Endless", "ENDLESS", 1f, -119f, new Color32(120, 70, 200, 255), panels.ShowEndless, out _);
+            RectTransform awards = SideButton(root, "Awards", "AWARDS", 1f, -223f, UIFactory.Purple, panels.ShowAchievements, out _);
             _awardsBadge = UIFactory.Badge(awards, out _awardsBadgeRoot);
 
             // --- bottom: play, line picker, upgrades
@@ -189,6 +200,9 @@ namespace NumberRoad.UI
             foreach (LineButton line in _lines) line.Refresh(save);
 
             int today = Daily.Today;
+            int claimable = Rewards.ReadyCount(save, today);
+            _claimAll.SetActive(claimable > 0);
+            _claimBadge.text = claimable.ToString(CultureInfo.InvariantCulture);
             int ready = Achievements.ReadyCount(save);
             _awardsBadgeRoot.SetActive(ready > 0);
             _awardsBadge.text = ready.ToString(CultureInfo.InvariantCulture);

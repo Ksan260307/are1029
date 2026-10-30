@@ -167,7 +167,7 @@ class ModelRegistryTests(unittest.TestCase):
     @staticmethod
     def game_tables():
         """Model names in the unit, enemy and boss tables of the C# code."""
-        units = re.findall(r'new UnitClass\(\d+, UnitLine\.\w+, \d, "[^"]+", "([a-z_]+)"', read(os.path.join(SCRIPTS, "Core", "Units.cs")))
+        units = re.findall(r'U\(\d+, UnitLine\.\w+, "[^"]+", "([a-z_]+)"', read(os.path.join(SCRIPTS, "Core", "Units.cs")))
         enemies_cs = read(os.path.join(SCRIPTS, "Core", "Enemies.cs"))
         enemies = re.findall(r'E\(\d+, "[a-z]+", "[^"]+", "[^"]*", "([a-z_]+)"', enemies_cs)
         bosses = re.findall(r'new BossType\(\d+, "[a-z]+", "[^"]+", "[^"]*", "([a-z_]+)"', enemies_cs)

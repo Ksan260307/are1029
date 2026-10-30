@@ -124,9 +124,9 @@ namespace NumberRoad.UI
             _starCount = 0;
             bool won = result.Won;
 
-            _title.text = won ? "VICTORY!" : "DEFEAT";
+            _title.text = won ? "VICTORY!" : result.Endless ? "GAME OVER" : "DEFEAT";
             _title.color = won ? UIFactory.Gold : UIFactory.Red;
-            string what = result.Daily ? "DAILY CHALLENGE" : "LEVEL " + result.Level;
+            string what = result.Endless ? "ENDLESS  -  STAGE " + result.EndlessStage : result.Daily ? "DAILY CHALLENGE" : "LEVEL " + result.Level;
             _subtitle.text = won ? what + " CLEAR" : what;
 
             foreach (Image s in _stars)
@@ -138,7 +138,15 @@ namespace NumberRoad.UI
             _detail.gameObject.SetActive(!won);
             if (!won)
             {
-                if (result.BossHpLeft > 0f)
+                _detail.color = UIFactory.Red;
+                if (result.Endless)
+                {
+                    int bosses = result.EndlessBosses;
+                    _detail.text = bosses + (bosses == 1 ? " BOSS" : " BOSSES") + " DEFEATED" + (result.NewEndlessBest ? "  -  NEW RECORD!" : string.Empty) +
+                                   "\nENEMIES WERE +" + result.EnemyPowerPercent + "% STRONGER";
+                    _detail.color = result.NewEndlessBest ? UIFactory.GoldDark : UIFactory.Red;
+                }
+                else if (result.BossHpLeft > 0f)
                 {
                     int left = Mathf.Max(1, Mathf.RoundToInt(result.BossHpLeft * 100f));
                     _detail.text = result.BossName + " HAD " + left + "% HP LEFT" + (left <= 25 ? "\nSO CLOSE!" : string.Empty);
@@ -161,6 +169,7 @@ namespace NumberRoad.UI
             if (result.GoldRushMultiplier > 1.001f) rows.Add(("GOLD RUSH", "x" + result.GoldRushMultiplier.ToString("0.0", c)));
             if (result.DailyMultiplier > 1.001f) rows.Add(("DAILY CHALLENGE", "x" + result.DailyMultiplier.ToString("0", c)));
             if (result.CouponMultiplier > 1.001f) rows.Add(("x2 COUPON", "x2"));
+            if (result.RunCoins > 0) rows.Add(("EARLIER STAGES", "+" + Fmt.Num(result.RunCoins)));
             for (int i = 0; i < Rows; i++)
             {
                 bool on = i < rows.Count;
@@ -217,7 +226,7 @@ namespace NumberRoad.UI
             if (_result == null) return;
             _clock += dt;
             float t = Mathf.Clamp01((_clock - 0.25f) / 0.9f);
-            _total.text = "+" + Fmt.Coins(Mathf.RoundToInt(_result.TotalCoins * (1f - (1f - t) * (1f - t))));
+            _total.text = "+" + Fmt.Coins(Mathf.RoundToInt((_result.TotalCoins + _result.RunCoins) * (1f - (1f - t) * (1f - t))));
 
             if (_result.Won)
             {

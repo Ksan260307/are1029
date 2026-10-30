@@ -39,12 +39,32 @@ namespace NumberRoad.Core
             public int Roulettes;
             public int ClassUps;
             public List<EnemyType> Spawnable;
+            /// <summary>Where the back rows of the furthest horde so far end.</summary>
+            public float HordeEnd;
+        }
+
+        /// <summary>Waves per level: 3 at the start, up to 6.</summary>
+        public static int WavesFor(int level) => Mathf.Clamp(3 + (Mathf.Max(1, level) - 1) / 5, 3, 6);
+
+        /// <summary>
+        /// What one buff between waves is worth to the reference player (damage and a few soldiers), so
+        /// later waves keep pace with a player who picks buffs.
+        /// </summary>
+        static void ReferenceBuff(PowerModel power)
+        {
+            power.Weapon.damageMul *= 1.2f;
+            power.Army.AddMixed(Mathf.RoundToInt(power.Count * 0.1f), UnitLine.Bow);
         }
 
         /// <summary>Meta-upgrade levels the reference player is assumed to own at this level.</summary>
         public static float ReferenceUpgrades(int level) => (Mathf.Max(1, level) - 1) * 0.9f;
 
-        public static LevelDefinition Generate(int level, bool daily = false, int salt = 0)
+        /// <summary>
+        /// Builds level <paramref name="level"/>. <paramref name="startArmy"/> and <paramref name="startWeapon"/>
+        /// replace the reference player's start: an endless stage is sized for the army that arrives from the
+        /// stage before, just as a level is sized for a fresh squad.
+        /// </summary>
+        public static LevelDefinition Generate(int level, bool daily = false, int salt = 0, Army startArmy = null, WeaponStats? startWeapon = null)
         {
             level = Mathf.Max(1, level);
             var rng = new Rng(level * 7919 + 17 + salt * 104729);
@@ -62,8 +82,8 @@ namespace NumberRoad.Core
 
             float upgrades = ReferenceUpgrades(level);
             var power = new PowerModel(
-                new Army(UnitLine.Bow, Balance.StartSquad(upgrades)),
-                WeaponStats.Create(Balance.RateMultiplier(upgrades), Balance.PowerMultiplier(upgrades), Balance.CritChance(Mathf.FloorToInt(upgrades))));
+                startArmy != null ? startArmy.Clone() : new Army(UnitLine.Bow, Balance.StartSquad(upgrades)),
+                startWeapon ?? WeaponStats.Create(Balance.RateMultiplier(upgrades), Balance.PowerMultiplier(upgrades), Balance.CritChance(Mathf.FloorToInt(upgrades))));
             var ctx = new Ctx
             {
                 Def = def,
@@ -75,18 +95,33 @@ namespace NumberRoad.Core
                 Spawnable = Enemies.Spawnable(level),
             };
 
-            // every plan opens with a gate pair that grows the squad, so the first fight is never hopeless
-            List<Section> plan = Plan(level, rng, def.goldRush);
-            float z = EmitGates(ctx, FirstEventZ, true);
-            for (int i = 1; i < plan.Count; i++) z = Emit(ctx, plan[i], z);
+            // every plan opens with a gate pair that grows the squad, so the first fight is never hopeless;
+            // each wave ends with a big horde, and passing its last rows opens the buff choice
+            List<List<Section>> plan = Plan(level, rng, def.goldRush, WavesFor(level));
+            def.waves = plan.Count;
+            float z = FirstEventZ;
+            for (int w = 0; w < plan.Count; w++)
+            {
+                for (int i = 0; i < plan[w].Count; i++)
+                {
+                    z = w == 0 && i == 0 ? EmitGates(ctx, z, true) : Emit(ctx, plan[w][i], z);
+                }
+                if (w == plan.Count - 1) break;
+                float end = Mathf.Max(z, ctx.HordeEnd + 6f);
+                def.waveEnds.Add(end);
+                ReferenceBuff(power);
+                z = end + 14f;
+            }
 
             def.length = z + 4f;
             def.expectedCount = power.Count;
             def.expectedDps = power.Dps;
-            float bossSeconds = 6.5f + Mathf.Min(level, 25) * 0.25f;
-            // armoured bosses show less HP so every boss takes about as long to bring down
-            float armor = Enemies.Bosses[def.bossType].Armor;
-            def.bossHp = Mathf.Max(20f, Mathf.Round(power.Dps * bossSeconds * ctx.Difficulty * armor * (def.castle ? 1.25f : 1f)));
+            float bossSeconds = Balance.BossSeconds(level);
+            // armoured bosses show less HP so every boss takes about as long to bring down - for the elements the
+            // expected army brings; an army built around the boss's weakness wins faster
+            BossType boss = Enemies.Bosses[def.bossType];
+            float elements = power.Army.ElementFactor(boss.Multiplier);
+            def.bossHp = Mathf.Max(20f, Mathf.Round(power.Dps * bossSeconds * ctx.Difficulty * boss.Armor * elements * (def.castle ? 1.25f : 1f)));
             def.bossSmash = Mathf.Max(2, Mathf.RoundToInt(power.Count * 0.08f));
             def.escortContact = Balance.ContactWeight(power.Count);
             int escorts = Mathf.Clamp(Mathf.RoundToInt(Balance.HordeSize(level) * 0.5f * ctx.HordeScale), 6, Balance.MaxHordeWave / 2);
@@ -97,72 +132,48 @@ namespace NumberRoad.Core
             return def;
         }
 
-        static List<Section> Plan(int level, Rng rng, bool goldRush)
+        /// <summary>
+        /// One list of sections per wave. The first wave always opens with gates and a "+n" lane; every wave has
+        /// gates and ends with a horde, and later levels pack more sections (and so more gates) into each wave.
+        /// </summary>
+        static List<List<Section>> Plan(int level, Rng rng, bool goldRush, int waves)
         {
-            List<Section> plan;
-            if (level == 1)
+            var plan = new List<List<Section>>();
+            int perWave = Mathf.Clamp(2 + level / 6, 2, 5);
+            for (int w = 0; w < waves; w++)
             {
-                plan = new List<Section>
+                var wave = new List<Section>();
+                if (w == 0)
                 {
-                    Section.Gates, Section.StripLane, Section.Horde, Section.Crate,
-                    Section.Gates, Section.ShootGates, Section.Horde, Section.Gates, Section.Horde,
-                };
-            }
-            else if (level == 2)
-            {
-                plan = new List<Section>
-                {
-                    Section.Gates, Section.StripLane, Section.Horde, Section.Crate,
-                    Section.GatesThenHorde, Section.ShootGates, Section.Gates, Section.Horde,
-                };
-            }
-            else
-            {
-                int count = 9 + Mathf.Min(level, 24) / 2;
-                plan = new List<Section> { Section.Gates, Section.StripLane };
-                Section last = Section.StripLane;
-                int guard = 0;
-                while (plan.Count < count - 1 && guard++ < 200)
-                {
-                    Section next = Roll(level, rng);
-                    if (next == last && next != Section.Gates) continue;
-                    plan.Add(next);
-                    last = next;
+                    wave.Add(Section.Gates);
+                    wave.Add(Section.StripLane);
+                    if (level >= 2) wave.Add(Section.Crate);
                 }
-                plan.Add(Section.Horde);
-
-                // "more gates every level": guarantee a minimum number of gate rows and of hordes
-                int gatesWanted = Mathf.Min(3 + level / 3, 12);
-                int hordesWanted = Mathf.Min(2 + level / 6, 5);
-                guard = 0;
-                while (CountGateRows(plan) < gatesWanted && guard++ < 50) plan.Insert(rng.Range(2, plan.Count), Section.Gates);
-                guard = 0;
-                while (CountHordes(plan) < hordesWanted && guard++ < 50) plan.Insert(rng.Range(2, plan.Count), Section.Horde);
+                else
+                {
+                    wave.Add(Section.Gates);
+                    Section last = Section.Gates;
+                    int guard = 0;
+                    while (wave.Count < perWave && guard++ < 100)
+                    {
+                        Section next = Roll(level, rng);
+                        if (next == Section.Horde || next == Section.StripLane && level < 3) continue;
+                        if (next == last && next != Section.Gates) continue;
+                        wave.Add(next);
+                        last = next;
+                    }
+                }
+                wave.Add(Section.Horde);
+                plan.Add(wave);
             }
 
             int goblins = goldRush ? 3 : level >= 3 && rng.Chance(0.3f) ? 1 : 0;
-            for (int i = 0; i < goblins; i++) plan.Insert(rng.Range(2, plan.Count), Section.GoldGoblin);
+            for (int i = 0; i < goblins; i++)
+            {
+                List<Section> wave = plan[rng.Range(0, plan.Count)];
+                wave.Insert(rng.Range(1, wave.Count), Section.GoldGoblin);
+            }
             return plan;
-        }
-
-        static int CountGateRows(List<Section> plan)
-        {
-            int n = 0;
-            foreach (Section s in plan)
-            {
-                if (s == Section.Gates || s == Section.ShootGates || s == Section.GatesThenHorde) n++;
-            }
-            return n;
-        }
-
-        static int CountHordes(List<Section> plan)
-        {
-            int n = 0;
-            foreach (Section s in plan)
-            {
-                if (s == Section.Horde || s == Section.GatesThenHorde) n++;
-            }
-            return n;
         }
 
         static Section Roll(int level, Rng rng)
@@ -440,7 +451,7 @@ namespace NumberRoad.Core
         {
             int side = c.Rng.Sign();
             int tiles = Mathf.Min(6 + c.Level / 2, 14);
-            int perTile = Mathf.Max(1, Mathf.RoundToInt(c.Power.Count / 30f));
+            int perTile = Mathf.Max(c.Level <= 3 ? 2 : 1, Mathf.RoundToInt(c.Power.Count / 30f));
             c.Def.events.Add(new SpawnEvent
             {
                 kind = SpawnKind.Strip,
@@ -505,7 +516,7 @@ namespace NumberRoad.Core
         // --- Enemies ------------------------------------------------------------
 
         /// <summary>Per-enemy base HP (multiplied by the type's HP): one reference bullet drops a basic enemy.</summary>
-        static float BaseHp(Ctx c) => Mathf.Max(0.5f, c.Power.HitDamage * 0.85f * c.Difficulty);
+        static float BaseHp(Ctx c) => Mathf.Max(0.3f, c.Power.HitDamage * Balance.SwarmToughness * c.Difficulty);
 
         static HordeUnit[] MixUnits(Ctx c, int total, EnemyType forcedMain)
         {
@@ -588,7 +599,9 @@ namespace NumberRoad.Core
             {
                 EnemyType t = Enemies.Get(u.type);
                 anyBig |= t.IsBig;
-                hits += u.count * Mathf.Max(1f, Mathf.Ceil(hp * t.Hp / Mathf.Max(0.01f, c.Power.HitDamage)) * (t.Has(EnemyTrait.Armor) ? 1.6f : 1f));
+                // shots that kill carry on into the next enemy, so weak swarms cost less than one shot each
+                float enemyHp = hp * t.Hp / t.Multiplier(Element.Physical);
+                hits += u.count / Combat.KillsPerHit(c.Power.HitDamage, enemyHp);
                 speed += u.count * t.Speed;
                 contact += u.count * Mathf.Max(1, t.Contact);
             }
@@ -602,7 +615,8 @@ namespace NumberRoad.Core
             int weight = Balance.ContactWeight(c.Power.Count);
             if (!laneLocked)
             {
-                float engage = (Balance.EnemyWakeDistance + depth) / (Balance.MarchSpeed + speed);
+                // the squad opens fire a little before the crowd starts its charge
+                float engage = 0.4f + (Balance.EnemyWakeDistance + depth) / (Balance.MarchSpeed + speed);
                 float kills = c.Power.BulletsPerSecond * engage * c.Power.Army.CrowdFactor / hits;
                 float perEnemy = Mathf.Max(0.05f, contact * weight * (1f - c.Power.Army.GuardChance(0f)));
                 float maxLoss = c.Power.Count * Mathf.Lerp(0.2f, 0.5f, (c.Difficulty - 0.6f) / 0.4f);
@@ -619,6 +633,7 @@ namespace NumberRoad.Core
                 c.Power.Lose(leak * perEnemy);
             }
 
+            c.HordeEnd = Mathf.Max(c.HordeEnd, z + 6f + depth);
             c.Def.events.Add(new SpawnEvent
             {
                 kind = SpawnKind.Horde,

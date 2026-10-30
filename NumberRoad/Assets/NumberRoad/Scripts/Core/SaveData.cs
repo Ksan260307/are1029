@@ -26,6 +26,8 @@ namespace NumberRoad.Core
         ClassUp = 1 << 5,
         Recruit = 1 << 6,
         Shootable = 1 << 7,
+        Burning = 1 << 8,
+        Shield = 1 << 9,
     }
 
     public enum Quality
@@ -61,6 +63,12 @@ namespace NumberRoad.Core
         public bool vibration = true;
         public int quality;
         public int startLine;
+        /// <summary>Game speed while playing: 1 or 2 (the x2 button).</summary>
+        public int gameSpeed = 1;
+        /// <summary>FAST MARCH: the squad hurries along while no enemy is near.</summary>
+        public bool fastMarch;
+        /// <summary>Most bosses beaten in one endless run.</summary>
+        public int endlessBest;
 
         /// <summary>Best stars per level (index = level - 1).</summary>
         public List<int> stars = new List<int>();
@@ -255,6 +263,8 @@ namespace NumberRoad.Core
                 music = music,
                 vibration = vibration,
                 quality = quality,
+                gameSpeed = gameSpeed,
+                fastMarch = fastMarch,
                 loginDay = loginDay,
                 loginStreak = loginStreak,
                 lastLoginRewardDay = lastLoginRewardDay,
@@ -275,6 +285,8 @@ namespace NumberRoad.Core
             foreach (UpgradeKind k in Enum.GetValues(typeof(UpgradeKind))) SetUpgrade(k, GetUpgrade(k));
             startLine = Mathf.Clamp(startLine, 0, Units.Lines - 1);
             quality = Mathf.Clamp(quality, 0, 2);
+            gameSpeed = Mathf.Clamp(gameSpeed, 1, 2);
+            endlessBest = Mathf.Max(0, endlessBest);
             stars = stars ?? new List<int>();
             enemyKills = enemyKills ?? new List<int>();
             claimedAchievements = claimedAchievements ?? new List<string>();

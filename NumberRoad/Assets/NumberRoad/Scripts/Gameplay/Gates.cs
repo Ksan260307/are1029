@@ -158,7 +158,7 @@ namespace NumberRoad.Gameplay
         public float HalfWidth => Width * 0.5f - 0.3f;
         public float HalfDepth => 0.3f;
 
-        public void OnBulletHit(float damage, Vector3 point, bool crit)
+        public void OnBulletHit(float damage, Vector3 point, bool crit, Element element = Element.Physical)
         {
             _punch = 1f;
             if (Locked)
@@ -451,7 +451,7 @@ namespace NumberRoad.Gameplay
         public float HalfWidth => 0.62f;
         public float HalfDepth => 0.62f;
 
-        public void OnBulletHit(float damage, Vector3 point, bool crit)
+        public void OnBulletHit(float damage, Vector3 point, bool crit, Element element = Element.Physical)
         {
             if (Broken) return;
             Hp -= damage;

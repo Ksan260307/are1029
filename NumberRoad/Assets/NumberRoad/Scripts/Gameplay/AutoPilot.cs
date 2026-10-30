@@ -4,9 +4,10 @@ using UnityEngine;
 namespace NumberRoad.Gameplay
 {
     /// <summary>
-    /// Simple bot that plays like a sensible player: dodges enemy shots, takes the better gate, chases gold
-    /// goblins, runs over "+n" strips, lines up with crates and fires VOLLEY when it is ready. Used by the
-    /// play-mode tests and handy for checking new levels hands-free (toggle with F1 in the editor).
+    /// Simple bot that plays like a sensible player: dodges enemy shots and burning ground, takes the better
+    /// gate, chases gold goblins, runs over "+n" strips, lines up with crates, fires VOLLEY when it is ready and
+    /// picks the strongest buff card between waves. Used by the play-mode tests and handy for checking new
+    /// levels hands-free (toggle with F1 in the editor).
     /// </summary>
     public static class AutoPilot
     {
@@ -40,6 +41,13 @@ namespace NumberRoad.Gameplay
                 return BestGate(row, squad).CenterX;
             }
 
+            if (session.HazardAhead(out float hazardX))
+            {
+                // step around the flames on the side with more room
+                float around = hazardX > 0f ? hazardX - 3.2f : hazardX + 3.2f;
+                return Mathf.Clamp(around, -Balance.SquadMaxX, Balance.SquadMaxX);
+            }
+
             int gold = session.Swarm.Find(EnemyTrait.Runaway, squad.Z);
             if (gold >= 0 && session.Swarm.Agents[gold].Pos.z - squad.Z < 34f) return session.Swarm.Agents[gold].Pos.x;
 
@@ -54,6 +62,85 @@ namespace NumberRoad.Gameplay
                 return crate.Position.x > 0f ? crate.Position.x - 2.8f : crate.Position.x + 2.8f;
             }
             return 0f;
+        }
+
+        /// <summary>The card a sensible player would take: the biggest boost to the army's strength right now.</summary>
+        public static int PickBuff(LevelSession session)
+        {
+            Buff[] options = session.Options;
+            int best = 0;
+            float bestValue = float.MinValue;
+            for (int i = 0; i < options.Length; i++)
+            {
+                float v = Value(options[i], session);
+                if (v > bestValue)
+                {
+                    bestValue = v;
+                    best = i;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>Rough strength gain of a card (1 = no gain).</summary>
+        public static float Value(Buff buff, LevelSession session)
+        {
+            Squad squad = session.Squad;
+            float fallen = squad.Count > 0 ? squad.Fallen / (float)squad.Count : 0f;
+            int wavesLeft = Mathf.Max(0, session.Waves - session.Wave - 1);
+            switch (buff.Id)
+            {
+                case "sharp": return 1.2f;
+                case "quick": return 1.15f;
+                case "eagle": return 1.09f;
+                case "deadly": return 1.06f;
+                case "long": return 1.05f;
+                case "extra": return 1.3f;
+                case "heavy_hitter": return 1.35f;
+                case "rapid": return 1.3f;
+                case "drill": return 1.1f;
+                case "combo": return 1.02f;
+                case "focus": return 1.06f;
+                case "storm": return 1.06f;
+                case "wide": return 1.12f;
+                case "training": return 1.21f;
+                case "flame": return 1.25f;
+                case "frost": return 1.12f;
+                case "thunder": return 1.18f;
+                case "venom": return 1.15f;
+                case "blast": return 1.25f;
+                case "pierce": return 1.15f;
+                case "bounce": return 1.12f;
+                case "seeker": return 1.08f;
+                case "holy_rounds": return 1.06f;
+                case "impact": return 1.06f;
+                case "steal": return 1.1f;
+                case "shards": return 1.14f;
+                case "glass": return squad.Count >= 20 ? 1.45f : 1f;
+                case "berserk": return 1.25f;
+                case "heavy_ammo": return 1.35f;
+                case "greed": return 0.95f;
+                case "overdrive": return 1.4f * Mathf.Pow(0.95f, wavesLeft + 1);
+                case "gamble": return 1.1f;
+                case "bloodlust": return 1.2f;
+                case "reckless": return 1.3f;
+                case "medic": return 1f + fallen * 0.5f;
+                case "regen": return 1.08f + Mathf.Min(0.3f, fallen);
+                case "second": return 1.1f;
+                case "ward": return 1.12f;
+                case "conscription": return 1.3f;
+                case "mercs": return 1.5f;
+                case "promotion": return 1.45f;
+                case "double": return 2f;
+                case "golden": return 1f;
+                case "blessing": return 1.12f;
+                case "allin": return 1.8f;
+                case "overflow": return 1.2f;
+                case "slowtime": return 1.08f;
+                case "charged": return 1.05f;
+                case "veteran": return 1.2f;
+                default: return buff.Kind == BuffKind.Troops ? 1.25f : 1.1f;
+            }
         }
 
         static GateView LockedGate(GateRow row)

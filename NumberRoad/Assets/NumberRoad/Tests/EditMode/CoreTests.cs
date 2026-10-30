@@ -159,6 +159,19 @@ namespace NumberRoad.Tests
         }
 
         [Test]
+        public void CanClassUp_UntilEveryoneIsAtTheTop()
+        {
+            var army = new Army(UnitLine.Bow, 10);
+            for (int i = 0; i < Units.Tiers - 1; i++)
+            {
+                Assert.IsTrue(army.CanClassUp);
+                Assert.IsTrue(army.ClassUp());
+            }
+            Assert.IsFalse(army.CanClassUp);
+            Assert.IsFalse(new Army().CanClassUp, "nobody to promote");
+        }
+
+        [Test]
         public void ClassUp_RaisesDamage()
         {
             WeaponStats weapon = WeaponStats.Create(1f, 1f);
@@ -356,11 +369,11 @@ namespace NumberRoad.Tests
         }
 
         [Test]
-        public void HordeSize_GrowsExponentially_UpToTheCap()
+        public void HordeSize_StartsBig_GrowsExponentially_UpToTheCap()
         {
-            Assert.AreEqual(18, Balance.HordeSize(1));
-            Assert.Greater(Balance.HordeSize(11), Balance.HordeSize(1) * 4);
-            Assert.Greater(Balance.HordeSize(21), Balance.HordeSize(11) * 4);
+            Assert.AreEqual(200, Balance.HordeSize(1), "a crowd from the very first level");
+            Assert.Greater(Balance.HordeSize(11), Balance.HordeSize(1) * 2.5f);
+            Assert.Greater(Balance.HordeSize(18), Balance.HordeSize(11) * 1.9f);
             Assert.AreEqual(Balance.MaxHordeWave, Balance.HordeSize(200));
         }
 
@@ -368,7 +381,8 @@ namespace NumberRoad.Tests
         public void Combo_AndStars()
         {
             Assert.AreEqual(1f, Balance.ComboMultiplier(0));
-            Assert.AreEqual(3f, Balance.ComboMultiplier(5000));
+            Assert.AreEqual(1.5f, Balance.ComboMultiplier(150), 1e-5f);
+            Assert.AreEqual(2f, Balance.ComboMultiplier(5000));
             Assert.AreEqual(0, Balance.Stars(0, 10));
             Assert.AreEqual(1, Balance.Stars(1, 10));
             Assert.AreEqual(2, Balance.Stars(4, 10));

@@ -102,10 +102,10 @@ namespace NumberRoad.Gameplay
         public float HalfWidth => Type.Radius;
         public float HalfDepth => Type.Radius;
 
-        public void OnBulletHit(float damage, Vector3 point, bool crit)
+        public void OnBulletHit(float damage, Vector3 point, bool crit, Element element = Element.Physical)
         {
             if (!IsAlive) return;
-            damage *= Type.Armor;
+            damage *= Type.Armor * Type.Multiplier(element);
             Hp -= damage;
             _flash = 1f;
             _host.OnBossHit(this, damage, point, crit);

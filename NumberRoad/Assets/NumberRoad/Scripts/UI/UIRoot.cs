@@ -177,6 +177,7 @@ namespace NumberRoad.UI
         readonly Text _soundText;
         readonly Text _musicText;
         readonly Text _stats;
+        readonly Text _buffs;
 
         public PauseView(RectTransform parent, GameRoot game)
         {
@@ -185,7 +186,7 @@ namespace NumberRoad.UI
             Root = dim.gameObject;
 
             Image panel = UIFactory.Image(dim.rectTransform, "Panel", UIFactory.Card, GameAssets.RoundedSprite);
-            UIFactory.Place(panel.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(760f, 1120f));
+            UIFactory.Place(panel.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(800f, 1340f));
             panel.gameObject.AddComponent<PopIn>();
             RectTransform p = panel.rectTransform;
 
@@ -193,17 +194,26 @@ namespace NumberRoad.UI
             UIFactory.Place(title.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -36f), new Vector2(700f, 120f));
 
             _stats = UIFactory.Text(p, "Stats", string.Empty, 38, UIFactory.Ink, TextAnchor.UpperCenter);
-            UIFactory.Place(_stats.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -170f), new Vector2(700f, 250f));
+            UIFactory.Place(_stats.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -160f), new Vector2(740f, 210f));
             _stats.lineSpacing = 1.15f;
 
-            AddButton(p, "Resume", "RESUME", UIFactory.Blue, -440f, game.Resume);
-            AddButton(p, "Restart", "RESTART", UIFactory.Gold, -580f, game.Restart);
-            AddButton(p, "Home", "HOME", UIFactory.Gray, -720f, game.Home);
+            // the power-ups picked so far this run
+            _buffs = UIFactory.Text(p, "Buffs", string.Empty, 30, new Color(0.3f, 0.34f, 0.45f), TextAnchor.UpperCenter);
+            UIFactory.Place(_buffs.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -380f), new Vector2(740f, 200f));
+            _buffs.horizontalOverflow = HorizontalWrapMode.Wrap;
+            _buffs.verticalOverflow = VerticalWrapMode.Truncate;
+            _buffs.resizeTextForBestFit = true;
+            _buffs.resizeTextMinSize = 20;
+            _buffs.resizeTextMaxSize = 30;
+
+            AddButton(p, "Resume", "RESUME", UIFactory.Blue, -610f, game.Resume);
+            AddButton(p, "Restart", "RESTART", UIFactory.Gold, -750f, game.Restart);
+            AddButton(p, "Home", "HOME", UIFactory.Gray, -890f, game.Home);
 
             _sound = UIFactory.Button(p, "Sound", "SFX", UIFactory.Blue, 36, () => game.SetSound(!game.Save.sound), out _soundText);
-            UIFactory.Place((RectTransform)_sound.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-140f, -890f), new Vector2(250f, 120f));
+            UIFactory.Place((RectTransform)_sound.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-140f, -1060f), new Vector2(250f, 120f));
             _music = UIFactory.Button(p, "Music", "BGM", UIFactory.Blue, 36, () => game.SetMusic(!game.Save.music), out _musicText);
-            UIFactory.Place((RectTransform)_music.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(140f, -890f), new Vector2(250f, 120f));
+            UIFactory.Place((RectTransform)_music.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(140f, -1060f), new Vector2(250f, 120f));
         }
 
         static void AddButton(RectTransform parent, string name, string label, Color color, float y, Action onClick)
@@ -219,10 +229,15 @@ namespace NumberRoad.UI
             if (session == null) return;
             RunStats s = session.Stats;
             _stats.text =
-                "LEVEL " + session.Def.level + "   " + Mathf.RoundToInt(session.Progress * 100f) + "%\n" +
+                (session.EndlessStage > 0
+                    ? "ENDLESS STAGE " + session.EndlessStage + "   ENEMIES +" + Mathf.RoundToInt((session.EnemyPower - 1f) * 100f) + "%"
+                    : "LEVEL " + session.Def.level) +
+                "   WAVE " + Mathf.Min(session.Wave + 1, session.Waves) + "/" + session.Waves + "   " + Mathf.RoundToInt(session.Progress * 100f) + "%\n" +
                 "DEFEATED  " + Fmt.Num(s.Kills) + "\n" +
                 "BEST ARMY  " + Fmt.Num(session.Squad.Peak) + "     BEST COMBO  " + s.BestCombo + "\n" +
                 "COINS  " + Fmt.Num(session.Coins) + "     TIME  " + Fmt.Duration(session.Elapsed);
+            string taken = Buffs.Summary(session.Mods);
+            _buffs.text = taken.Length > 0 ? "POWER-UPS\n" + taken : "POWER-UPS\nPICK ONE AFTER EVERY WAVE";
         }
     }
 }

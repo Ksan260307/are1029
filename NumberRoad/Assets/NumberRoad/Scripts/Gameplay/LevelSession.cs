@@ -58,10 +58,10 @@ namespace NumberRoad.Gameplay
 
     /// <summary>
     /// One play-through of a level: streams the <see cref="LevelDefinition"/> onto the road as the squad marches,
-    /// resolves gates, bullets and contacts, runs combos, the VOLLEY skill, the boss fight and the revive, and
-    /// reports the result. Owns every object it creates.
+    /// resolves gates, bullets and contacts, runs combos, the VOLLEY skill, the waves with their buff picks, the
+    /// boss fight and the revive, and reports the result. Owns every object it creates.
     /// </summary>
-    public sealed class LevelSession : ISwarmHost, IBossHost
+    public sealed class LevelSession : ISwarmHost, IBossHost, IBuffTarget
     {
         public const float CountdownTime = 1.3f;
         const float VolleyTime = 0.9f;
@@ -100,16 +100,36 @@ namespace NumberRoad.Gameplay
         public bool Revived { get; private set; }
         /// <summary>Boss HP share left when the squad fell (0 if the fight never started).</summary>
         public float BossHpLeft { get; private set; }
+        /// <summary>The wave being fought (0-based). The last wave ends with the boss.</summary>
+        public int Wave { get; private set; }
+        /// <summary>True while the buff cards are on screen: the road waits for a pick.</summary>
+        public bool ChoosingBuff { get; private set; }
+        /// <summary>The cards on offer while <see cref="ChoosingBuff"/>.</summary>
+        public Buff[] Options { get; private set; } = new Buff[0];
+        /// <summary>Free re-draws of the cards left in this run.</summary>
+        public int Rerolls { get; private set; } = 1;
+        /// <summary>Multiplier on enemy HP and on the soldiers their hits take (endless mode: +1% per boss beaten).</summary>
+        public float EnemyPower { get; }
+        /// <summary>Endless stage (1, 2, ...), or 0 for a normal level.</summary>
+        public int EndlessStage { get; }
+        /// <summary>FAST MARCH: hurry across the road while no enemy is near.</summary>
+        public bool FastMarch { get; set; }
+        /// <summary>True while fast march is actually speeding the squad up.</summary>
+        public bool Rushing => _march > 1.05f;
         public event Action<bool> Finished;
 
+        public int Waves => Mathf.Max(1, Def.waves);
+        /// <summary>The buffs picked so far (shared with the squad and the bullets).</summary>
+        public RunMods Mods => Squad.Mods;
         public int Coins => Mathf.FloorToInt(Stats.Coins);
-        public float ComboTime01 => Combo > 0 ? Mathf.Clamp01(_comboClock / Balance.ComboWindow) : 0f;
+        public float ComboTime01 => Combo > 0 ? Mathf.Clamp01(_comboClock / ComboWindow) : 0f;
+        float ComboWindow => Mathf.Max(0.6f, Balance.ComboWindow + Mods.ComboTime);
         public float Progress => _bossFight ? 1f : Mathf.Clamp01(Squad.Z / Mathf.Max(1f, Def.length));
         public bool IsOver => Phase == SessionPhase.Won || Phase == SessionPhase.Lost;
         public bool Fighting => Phase == SessionPhase.Running || Phase == SessionPhase.BossFight;
-        public int SkillNeeded => Balance.SkillCharge(Def.level, _ctx.Save.skillLevel);
+        public int SkillNeeded => Mathf.Max(5, Mathf.RoundToInt(Balance.SkillCharge(Def.level, _ctx.Save.skillLevel) / Mods.SkillCharge));
         public float SkillCharge01 => Mathf.Clamp01(_skill / SkillNeeded);
-        public bool SkillReady => _skill >= SkillNeeded && Fighting && Countdown <= 0f;
+        public bool SkillReady => _skill >= SkillNeeded && Fighting && Countdown <= 0f && !ChoosingBuff;
         public bool CanRevive => Phase == SessionPhase.Lost && !Revived;
 
         readonly GameContext _ctx;
@@ -125,6 +145,7 @@ namespace NumberRoad.Gameplay
         readonly List<VolleyArrow> _volley = new List<VolleyArrow>();
         readonly InstancedBatch _batch = new InstancedBatch();
         readonly Action<Vector3, int, bool> _onShotHit;
+        readonly Rng _buffRng;
         readonly int _recordToBeat;
         int _nextEvent;
         bool _bossSpawned;
@@ -142,17 +163,29 @@ namespace NumberRoad.Gameplay
         float _stripPitch = 1f;
         float _blockClock;
         float _explosionClock;
+        float _burnAccum;
+        float _burnClock;
+        float _march = 1f;
         int _chain;
 
-        public LevelSession(GameContext ctx, LevelDefinition def, Army army, WeaponStats weapon)
+        /// <param name="mods">Buffs carried over from the endless stage before (null: a fresh run).</param>
+        /// <param name="enemyPower">Multiplier on enemy HP and hits (see <see cref="EnemyPower"/>).</param>
+        /// <param name="endlessStage">Endless stage number, 0 outside endless mode.</param>
+        public LevelSession(GameContext ctx, LevelDefinition def, Army army, WeaponStats weapon, RunMods mods = null, float enemyPower = 1f,
+            int endlessStage = 0)
         {
             _ctx = ctx;
             Def = def;
+            EnemyPower = Mathf.Max(0.1f, enemyPower);
+            EndlessStage = endlessStage;
             _root = new GameObject($"Level {def.level}");
             SaveData save = ctx.Save;
             Squad = new Squad(ctx, army, weapon, save.GuardBonus, save.RecruitBonus, save.StartLine);
+            if (mods != null) Squad.Mods = mods;
             Swarm = new Swarm(this, ctx);
             _bullets = new BulletSystem(ctx);
+            _bullets.Bind(Swarm, Mods);
+            _buffRng = new Rng(Random.Range(1, int.MaxValue));
             _onShotHit = OnShotHit;
             _recordToBeat = save.statMaxArmy;
             Phase = SessionPhase.Ready;
@@ -166,8 +199,14 @@ namespace NumberRoad.Gameplay
             Phase = SessionPhase.Running;
             Countdown = CountdownTime;
             Biome biome = Biomes.All[Def.biome % Biomes.All.Length];
-            if (Def.daily) Banner("DAILY CHALLENGE", "DOUBLE HORDES - DOUBLE REWARDS", UIFactory.Gold);
-            else Banner("LEVEL " + Def.level, biome.Name, Color.white);
+            if (EndlessStage > 0)
+            {
+                int percent = Mathf.RoundToInt((EnemyPower - 1f) * 100f);
+                Banner("STAGE " + EndlessStage, percent > 0 ? "ENEMIES +" + percent + "% STRONGER  -  " + Waves + " WAVES" : "ENDLESS  -  " + Waves + " WAVES",
+                    percent > 0 ? new Color(1f, 0.6f, 0.5f) : UIFactory.Gold);
+            }
+            else if (Def.daily) Banner("DAILY CHALLENGE", "DOUBLE HORDES - DOUBLE REWARDS", UIFactory.Gold);
+            else Banner("LEVEL " + Def.level, biome.Name + "  -  " + Waves + " WAVES", Color.white);
             if (Def.castle) Banner("CASTLE SIEGE", "DEFEAT THE BOSS FOR " + Balance.CastleGems + " GEMS", UIFactory.Gold);
             else if (Def.goldRush) Banner("GOLD RUSH", "COINS x" + Balance.GoldRushCoins.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " - CATCH THE GOLD GOBLINS", UIFactory.Gold);
 
@@ -202,7 +241,8 @@ namespace NumberRoad.Gameplay
 
         public void Tick(float dt, float steer)
         {
-            if (Phase == SessionPhase.Ready) return;
+            // between waves everything holds still until a card is picked
+            if (Phase == SessionPhase.Ready || ChoosingBuff) return;
             Elapsed += dt;
             bool fighting = Fighting;
             // keeps running a little past zero so the HUD can fade "GO!" out
@@ -220,7 +260,8 @@ namespace NumberRoad.Gameplay
             }
 
             bool blocked = Swarm.AnyBlocking(Squad) || (Boss != null && Boss.IsAttacking && Boss.Touching(Squad));
-            float advance = Phase == SessionPhase.Running && !blocked && Countdown <= 0f ? Balance.MarchSpeed * dt : 0f;
+            TickMarch(dt, blocked);
+            float advance = Phase == SessionPhase.Running && !blocked && Countdown <= 0f ? Balance.MarchSpeed * _march * dt : 0f;
             if (Phase == SessionPhase.Running && Squad.Z + advance >= Def.length)
             {
                 advance = Mathf.Max(0f, Def.length - Squad.Z);
@@ -229,6 +270,8 @@ namespace NumberRoad.Gameplay
             Squad.Move(dt, advance);
             SpawnUpTo(Squad.Z + Balance.SpawnAhead);
             StreamHordes();
+            if (Phase == SessionPhase.Running && Wave < Def.waveEnds.Count && Squad.Z >= Def.waveEnds[Wave]) OfferBuffs();
+            Swarm.SpeedFactor = Mods.EnemySpeed;
 
             if (fighting)
             {
@@ -241,10 +284,11 @@ namespace NumberRoad.Gameplay
             Boss?.Tick(dt, Squad, fighting);
             Swarm.Compact(Squad.Z - Balance.DespawnBehind);
             Swarm.BuildGrid(Squad.Z - 4f, Squad.Z + 80f);
+            Swarm.PrepareTargets(Squad);
 
-            if (fighting && Countdown <= 0f) Squad.Fire(dt, _bullets, Swarm.Chill);
+            if (fighting && Countdown <= 0f) Squad.Fire(dt, _bullets, Swarm, Boss, Swarm.Chill, Mods.ComboFactor(Combo));
             RebuildTargets();
-            _bullets.Tick(dt, Swarm, _targets);
+            _bullets.Tick(dt, _targets);
             _shots.Tick(dt, Squad, _ctx, _onShotHit);
             TickVolley(dt);
 
@@ -263,6 +307,21 @@ namespace NumberRoad.Gameplay
             CheckEnd(dt);
         }
 
+        /// <summary>FAST MARCH: the pace eases up while the road ahead is clear and drops back as soon as enemies are near.</summary>
+        void TickMarch(float dt, bool blocked)
+        {
+            // last frame's shared targets: anything within reach ahead means it is time to fight
+            bool clear = FastMarch && Phase == SessionPhase.Running && !blocked && Countdown <= 0f && Swarm.FrontCount == 0;
+            _march = Mathf.MoveTowards(_march, clear ? Balance.FastMarch : 1f, dt * (clear ? 1.6f : 5f));
+            Squad.Pace = _march;
+            if (clear && _march > 1.4f && Random.value < dt * 10f)
+            {
+                // dust kicked up behind the hurrying squad
+                _ctx.Fx.Burst(Squad.Position + new Vector3(Random.Range(-Squad.HalfWidth, Squad.HalfWidth), 0.1f, -Squad.HalfDepth),
+                    new Color(0.8f, 0.75f, 0.65f), 2, 2.5f, 0.12f, 0.5f);
+            }
+        }
+
         // --- Rendering ------------------------------------------------------------------
 
         /// <summary>Characters (squad, swarm, boss) go through the shared crowd renderer.</summary>
@@ -273,9 +332,10 @@ namespace NumberRoad.Gameplay
             Boss?.Render(crowd);
         }
 
-        /// <summary>Bullets, enemy shots, the volley and blob shadows.</summary>
+        /// <summary>Ground rings and burning patches, bullets, enemy shots, the volley and blob shadows.</summary>
         public void RenderEffects()
         {
+            Swarm.RenderGround();
             _bullets.Render();
             _shots.Render();
             RenderVolley();
@@ -400,11 +460,13 @@ namespace NumberRoad.Gameplay
             EnemyType t = Enemies.Get(type);
             Banner("NEW ENEMY: " + t.Name, t.Description.ToUpperInvariant(), new Color(1f, 0.55f, 0.45f), t.Model);
             if (t.Has(EnemyTrait.Ranged)) ShowHint(Core.Hint.Ranged, "ARCHERS SHOOT FROM AFAR - KEEP MOVING TO DODGE THE RED MARKS!");
+            if (t.Has(EnemyTrait.Shield)) ShowHint(Core.Hint.Shield, "SHIELDS STOP STRAIGHT SHOTS - LOBS, SKY STRIKES AND SWEEPS GET AROUND THEM!");
         }
 
         void StreamHordes()
         {
-            float limit = Squad.Z + Balance.SpawnAhead + 30f;
+            // a horde stays a plain count until its rows come within reach: only those become live enemies
+            float limit = Squad.Z + Balance.SpawnReach;
             for (int s = _streams.Count - 1; s >= 0; s--)
             {
                 HordeStream h = _streams[s];
@@ -420,7 +482,7 @@ namespace NumberRoad.Gameplay
                     if (z > limit) break;
                     float x = ev.x + (col - (columns - 1) * 0.5f) * spacingX + Random.Range(-0.08f, 0.08f);
                     x = Mathf.Clamp(x, -Balance.SoldierEdgeX, Balance.SoldierEdgeX);
-                    Swarm.Spawn(h.Order[i], new Vector3(x, 0f, z + Random.Range(-0.1f, 0.1f)), ev.hp, ev.smash, ev.contact, ev.laneLocked, h.Elite[i]);
+                    Swarm.Spawn(h.Order[i], new Vector3(x, 0f, z + Random.Range(-0.1f, 0.1f)), ev.hp * Mods.EnemyHp * EnemyPower, ev.smash, ev.contact, ev.laneLocked, h.Elite[i]);
                     h.Next++;
                 }
                 if (!h.Announced && Fighting && ev.warning && ev.z - Squad.Z < 48f)
@@ -438,7 +500,8 @@ namespace NumberRoad.Gameplay
         {
             _bossSpawned = true;
             float z = Def.length + Balance.BossArenaDistance;
-            Boss = new BossUnit(_ctx, this, Enemies.Bosses[Def.bossType % Enemies.Bosses.Length], new Vector3(0f, 0f, z), Def.bossHp, Def.bossSmash);
+            Boss = new BossUnit(_ctx, this, Enemies.Bosses[Def.bossType % Enemies.Bosses.Length], new Vector3(0f, 0f, z), Def.bossHp * Mods.EnemyHp * EnemyPower,
+                Def.bossSmash);
 
             // the escort army waits behind the boss and charges when the fight starts
             int total = 0;
@@ -452,7 +515,7 @@ namespace NumberRoad.Gameplay
                 {
                     int row = k / columns, col = k % columns;
                     float x = (col - (columns - 1) * 0.5f) * spacing + Random.Range(-0.08f, 0.08f);
-                    Swarm.Spawn(u.type, new Vector3(x, 0f, z + 2.6f + row * spacing), Def.escortHp, Mathf.Max(1, Def.bossSmash / 4), Def.escortContact, false, false);
+                    Swarm.Spawn(u.type, new Vector3(x, 0f, z + 2.6f + row * spacing), Def.escortHp * Mods.EnemyHp * EnemyPower, Mathf.Max(1, Def.bossSmash / 4), Def.escortContact, false, false);
                 }
             }
         }
@@ -524,7 +587,7 @@ namespace NumberRoad.Gameplay
                     _chain++;
                     if (_chain >= 2)
                     {
-                        int chainCoins = Balance.ChainCoins(_chain, Def.level);
+                        int chainCoins = Mathf.RoundToInt(Balance.ChainCoins(_chain, Def.level) * Mods.Coins);
                         Stats.BonusCoins += chainCoins;
                         _ctx.Labels.Popup("CHAIN x" + _chain + "  +" + chainCoins, Squad.Position + new Vector3(-1.2f, 2.9f, 0.5f), new Color(0.5f, 0.9f, 1f), 0.8f);
                     }
@@ -536,7 +599,7 @@ namespace NumberRoad.Gameplay
 
                 if (perfect)
                 {
-                    int bonus = Balance.PerfectCoins(Def.level);
+                    int bonus = Mathf.RoundToInt(Balance.PerfectCoins(Def.level) * Mods.Coins);
                     Stats.Perfect++;
                     Stats.BonusCoins += bonus;
                     _ctx.Labels.Popup("PERFECT!  +" + bonus, Squad.Position + new Vector3(1.2f, 3.4f, 0.5f), UIFactory.Gold, 1.1f, 1.1f);
@@ -562,29 +625,42 @@ namespace NumberRoad.Gameplay
             return best - worst > best * 0.02f && chosenScore >= best * 0.999f;
         }
 
+        /// <summary>GATE BLESSING and OVERFLOW make the good number gates bigger.</summary>
+        GateEffect Boosted(GateEffect effect)
+        {
+            if (effect.kind == GateKind.Add && effect.value > 0) effect.value = Mathf.Max(effect.value, Mathf.RoundToInt(effect.value * Mods.GateBonus));
+            else if (effect.kind == GateKind.Multiply && effect.value > 0) effect.value += Mods.MultiplyBonus;
+            return effect;
+        }
+
+        /// <summary>Every soldier moves one class up (CLASS UP gate, PROMOTION card). False when all are maxed.</summary>
+        bool Promote()
+        {
+            UnitLine line = Squad.Army.DominantLine;
+            UnitClass before = HighestTier(line);
+            if (!Squad.ClassUp()) return false;
+            Stats.ClassUps++;
+            UnitClass after = HighestTier(line);
+            string sub = before != null && after != null && before != after ? before.Name + "  >  " + after.Name : "EVERY SOLDIER PROMOTED";
+            Banner("CLASS UP!", sub, GateView.ClassUpColor, after?.Model);
+            _ctx.Fx.Sparks(Squad.Position + Vector3.up, new Color(1f, 0.85f, 1f), 40, 8f, 0.5f);
+            _ctx.Audio.Play(Sfx.ClassUp);
+            _ctx.Camera.Shake(0.15f);
+            Haptics.Tap(35, true);
+            return true;
+        }
+
         void ApplyEffect(GateEffect effect, Vector3 origin)
         {
             Vector3 popup = Squad.Position + new Vector3(0f, 2.3f, 0.5f);
+            effect = Boosted(effect);
             switch (effect.kind)
             {
                 case GateKind.ClassUp:
                 {
-                    UnitLine line = Squad.Army.DominantLine;
-                    UnitClass before = HighestTier(line);
-                    if (Squad.ClassUp())
+                    if (!Promote())
                     {
-                        Stats.ClassUps++;
-                        UnitClass after = HighestTier(line);
-                        string sub = before != null && after != null && before != after ? before.Name + "  >  " + after.Name : "EVERY SOLDIER PROMOTED";
-                        Banner("CLASS UP!", sub, GateView.ClassUpColor, after?.Model);
-                        _ctx.Fx.Sparks(Squad.Position + Vector3.up, new Color(1f, 0.85f, 1f), 40, 8f, 0.5f);
-                        _ctx.Audio.Play(Sfx.ClassUp);
-                        _ctx.Camera.Shake(0.15f);
-                        Haptics.Tap(35, true);
-                    }
-                    else
-                    {
-                        int bonus = 10 + Def.level * 2;
+                        int bonus = Mathf.RoundToInt((10 + Def.level * 2) * Mods.Coins);
                         Stats.BonusCoins += bonus;
                         _ctx.Labels.Popup("MAX CLASS!  +" + bonus, popup, UIFactory.Gold, 1f);
                         _ctx.Audio.Play(Sfx.Coin);
@@ -668,7 +744,7 @@ namespace NumberRoad.Gameplay
             if (byBullets)
             {
                 Stats.Crates++;
-                Stats.BonusCoins += Balance.CrateCoins;
+                Stats.BonusCoins += Balance.CrateCoins * Mods.Coins;
                 _ctx.Fx.Sparks(crate.Position + Vector3.up, GameContext.GoldColor, 20, 7f, 0.45f);
                 ApplyEffect(crate.Reward, crate.Position);
             }
@@ -698,7 +774,7 @@ namespace NumberRoad.Gameplay
             EnemyType t = Enemies.Get(a.Type);
             // the gold goblin just vanishes with its sack (no reward, no harm)
             if (t.Contact <= 0) return;
-            float contact = Mathf.Max(1, t.Contact) * a.Weight * (a.Elite ? 2f : 1f);
+            float contact = Mathf.Max(1, t.Contact) * a.Weight * (a.Elite ? 2f : 1f) * EnemyPower;
             int lost = RoundRandom(contact * (1f - Squad.GuardChance));
             if (lost > 0)
             {
@@ -722,7 +798,7 @@ namespace NumberRoad.Gameplay
         public void OnMeleeStrike(ref Agent a)
         {
             EnemyType t = Enemies.Get(a.Type);
-            float smash = Mathf.Max(t.Contact, a.Smash) * (a.Elite ? 1.5f : 1f);
+            float smash = Mathf.Max(t.Contact, a.Smash) * (a.Elite ? 1.5f : 1f) * EnemyPower;
             int lost = Mathf.Max(1, RoundRandom(smash * (1f - Squad.GuardChance * 0.5f)));
             var hit = new Vector3(Squad.X, 0f, Squad.Z + Squad.HalfDepth);
             Stats.LostMelee += Squad.Lose(lost, hit);
@@ -746,7 +822,7 @@ namespace NumberRoad.Gameplay
 
         void OnShotHit(Vector3 point, int damage, bool fire)
         {
-            int lost = RoundRandom(damage * (1f - Squad.GuardChance));
+            int lost = RoundRandom(damage * EnemyPower * (1f - Squad.GuardChance));
             if (lost > 0) Stats.LostShots += Squad.Lose(lost, point);
             _ctx.Fx.Sparks(point + Vector3.up * 0.4f, fire ? new Color(1f, 0.5f, 0.1f) : new Color(0.9f, 0.85f, 0.7f), fire ? 14 : 5, 5f, 0.35f);
             _ctx.Labels.Popup(lost > 0 ? "-" + Fmt.Num(lost) : "BLOCK", point + Vector3.up * 1.5f, lost > 0 ? GateView.BadColor : new Color(0.75f, 0.85f, 1f), 0.75f);
@@ -771,14 +847,20 @@ namespace NumberRoad.Gameplay
             Stats.Kills++;
             Stats.KillsByType[a.Type]++;
             Combo++;
-            _comboClock = Balance.ComboWindow;
+            _comboClock = ComboWindow;
             Stats.BestCombo = Mathf.Max(Stats.BestCombo, Combo);
             if (Fighting) _skill = Mathf.Min(SkillNeeded, _skill + 1f);
 
-            float baseCoins = a.Elite ? Balance.EliteCoins : t.Coins;
+            // elites and gold goblins keep their full value; plain kills are worth less while hordes are huge
+            float baseCoins = (a.Elite ? Balance.EliteCoins : t.Has(EnemyTrait.Runaway) ? t.Coins : t.Coins * Balance.KillValue(Def.level)) * Mods.Coins;
             float multiplier = Balance.ComboMultiplier(Combo);
             Stats.KillCoins += baseCoins;
             Stats.ComboCoins += baseCoins * (multiplier - 1f);
+            // LIFE STEAL: every few kills a share of fresh soldiers joins
+            if (Mods.StealEvery > 0 && Stats.Kills % Mods.StealEvery == 0 && Fighting && Squad.Count > 0)
+            {
+                Squad.Gain(Mathf.Max(1, Squad.Count / 100), a.Pos);
+            }
 
             // milestones every 25 kills, then every 50 / 100 once the combo is huge
             if (Combo % (Combo < 100 ? 25 : Combo < 500 ? 50 : 100) == 0)
@@ -820,9 +902,9 @@ namespace NumberRoad.Gameplay
             _ctx.Labels.Popup("ESCAPED...", Squad.Position + new Vector3(0f, 2.6f, 4f), UIFactory.Gray, 0.8f);
         }
 
-        public void OnExplosion(Vector3 center, float radius)
+        public void OnExplosion(Vector3 center, float radius, bool fire)
         {
-            _ctx.Fx.Sparks(center, new Color(1f, 0.55f, 0.15f), _ctx.LowQuality ? 8 : 18, 4f + radius * 2f, 0.5f);
+            _ctx.Fx.Sparks(center, fire ? new Color(1f, 0.45f, 0.08f) : new Color(1f, 0.7f, 0.3f), _ctx.LowQuality ? 8 : 18, 4f + radius * 2f, 0.5f);
             _ctx.Fx.Burst(center, new Color(0.3f, 0.25f, 0.22f), _ctx.LowQuality ? 3 : 6, 5f, 0.15f, 0.7f);
             if (_explosionClock > 0f) return;
             _explosionClock = 0.12f;
@@ -830,6 +912,21 @@ namespace NumberRoad.Gameplay
             _ctx.Camera.Shake(0.2f);
             _ctx.Freeze(0.025f);
             Haptics.Tap(15);
+        }
+
+        /// <summary>The squad stands in burning ground left by a fire imp or a meteor.</summary>
+        public void OnBurningGround(float soldiersPerSecond, float dt)
+        {
+            _burnAccum += soldiersPerSecond * EnemyPower * (1f - Squad.GuardChance * 0.5f) * dt;
+            if (_burnAccum < 1f) return;
+            int lost = Mathf.FloorToInt(_burnAccum);
+            _burnAccum -= lost;
+            Stats.LostContact += Squad.Lose(lost, Squad.Position);
+            if (_burnClock > 0f) return;
+            _burnClock = 0.5f;
+            _ctx.Labels.Popup("BURN!", Squad.Position + new Vector3(0f, 2f, 0.5f), new Color(1f, 0.5f, 0.1f), 0.8f);
+            _ctx.Audio.Play(Sfx.SoldierDie, 0.45f, 0.1f, 0.05f);
+            ShowHint(Core.Hint.Burning, "BURNING GROUND HURTS - STEER AROUND THE FLAMES!");
         }
 
         // --- Boss callbacks -----------------------------------------------------------------
@@ -844,7 +941,7 @@ namespace NumberRoad.Gameplay
 
         public void OnBossStrike(BossUnit boss)
         {
-            float smash = boss.Smash * (boss.Raging ? 1.3f : 1f);
+            float smash = boss.Smash * (boss.Raging ? 1.3f : 1f) * EnemyPower;
             int lost = Mathf.Max(1, RoundRandom(smash * (1f - Squad.GuardChance * 0.5f)));
             var hit = new Vector3(Squad.X, 0f, Squad.Z + Squad.HalfDepth);
             Stats.LostBoss += Squad.Lose(lost, hit);
@@ -867,7 +964,8 @@ namespace NumberRoad.Gameplay
                     {
                         float angle = i / (float)n * Mathf.PI * 2f;
                         var pos = new Vector3(Mathf.Clamp(p.x + Mathf.Cos(angle) * 2.2f, -3.5f, 3.5f), 0f, p.z - 1.5f + Mathf.Sin(angle) * 1.2f);
-                        Swarm.Spawn(Enemies.Skeleton, pos, Def.escortHp, Mathf.Max(1, Def.bossSmash / 4), Def.escortContact, false, false, true, 0.6f);
+                        Swarm.Spawn(Enemies.Skeleton, pos, Def.escortHp * Mods.EnemyHp * EnemyPower, Mathf.Max(1, Def.bossSmash / 4), Def.escortContact, false, false,
+                            true, 0.6f);
                     }
                     _ctx.Fx.Sparks(p + Vector3.up * 1.5f, new Color(0.6f, 0.3f, 1f), 30, 7f, 0.5f);
                     _ctx.Audio.Play(Sfx.Skill, 0.7f);
@@ -887,7 +985,7 @@ namespace NumberRoad.Gameplay
                     Haptics.Tap(45, true);
                     if (dz < 9f)
                     {
-                        int lost = Mathf.Max(2, RoundRandom(boss.Smash * 1.5f * (1f - Squad.GuardChance * 0.5f)));
+                        int lost = Mathf.Max(2, RoundRandom(boss.Smash * 1.5f * EnemyPower * (1f - Squad.GuardChance * 0.5f)));
                         Stats.LostBoss += Squad.Lose(lost, Squad.Position);
                         _ctx.Labels.Popup("SHOCKWAVE -" + Fmt.Num(lost), Squad.Position + new Vector3(0f, 2.5f, 0.5f), GateView.BadColor, 1.2f);
                     }
@@ -917,7 +1015,7 @@ namespace NumberRoad.Gameplay
 
         public void OnBossKilled(BossUnit boss)
         {
-            Stats.BossCoins = Balance.BossCoins(Def.level);
+            Stats.BossCoins = Mathf.RoundToInt(Balance.BossCoins(Def.level) * Mods.Coins);
             _ctx.Freeze(0.14f);
             _ctx.Slow(1.4f);
             _ctx.Camera.Shake(1f);
@@ -962,7 +1060,7 @@ namespace NumberRoad.Gameplay
             _volleyClock += dt;
             if (before < VolleyImpact && _volleyClock >= VolleyImpact)
             {
-                float damage = Squad.Dps * Balance.SkillPower(_ctx.Save.skillLevel);
+                float damage = Squad.Dps * Balance.SkillPower(_ctx.Save.skillLevel) * Mods.SkillPower;
                 Swarm.BoxDamage(Squad.Z + VolleyNear, Squad.Z + VolleyFar, damage);
                 if (Boss != null && Boss.IsAlive && Boss.Position.z - Squad.Z < VolleyFar + 2f) Boss.OnBulletHit(damage * 0.5f, Boss.Position + Vector3.up, false);
                 _ctx.Camera.Shake(0.45f);
@@ -991,6 +1089,7 @@ namespace NumberRoad.Gameplay
             _critClock -= dt;
             _blockClock -= dt;
             _explosionClock -= dt;
+            _burnClock -= dt;
             if (Combo <= 0) return;
             _comboClock -= dt;
             if (_comboClock <= 0f) Combo = 0;
@@ -1081,7 +1180,7 @@ namespace NumberRoad.Gameplay
                 {
                     Phase = SessionPhase.Won;
                     _endClock = 2.6f;
-                    Stats.VictoryCoins = Balance.VictoryCoins(Def.level);
+                    Stats.VictoryCoins = Mathf.RoundToInt(Balance.VictoryCoins(Def.level) * Mods.Coins);
                     if (Def.castle) Stats.Gems += Balance.CastleGems;
                     Swarm.KillAll();
                     _shots.Clear();
@@ -1120,6 +1219,102 @@ namespace NumberRoad.Gameplay
             return true;
         }
 
+        // --- Waves and buffs -------------------------------------------------------------
+
+        /// <summary>A wave is over: the road stops and three buff cards are dealt.</summary>
+        void OfferBuffs()
+        {
+            Options = Buffs.Roll(_buffRng, 3, Mods, this);
+            if (Options.Length == 0)
+            {
+                StartNextWave();
+                return;
+            }
+            ChoosingBuff = true;
+            _shots.Clear();
+            _ctx.Audio.Play(Sfx.Banner);
+            Haptics.Tap(20);
+        }
+
+        /// <summary>Takes one of the offered cards and starts the next wave.</summary>
+        public void ChooseBuff(int index)
+        {
+            if (!ChoosingBuff || index < 0 || index >= Options.Length) return;
+            Buff buff = Options[index];
+            ChoosingBuff = false;
+            Options = new Buff[0];
+            buff.Apply(Mods, this);
+            Swarm.SpeedFactor = Mods.EnemySpeed;
+            Color color = Buffs.KindColor(buff.Kind);
+            // card names can be long: smaller than the gate popups so they stay on screen
+            _ctx.Labels.Popup(buff.Name, Squad.Position + new Vector3(0f, 3.2f, 1f), color, 0.8f, 1.2f);
+            _ctx.Fx.Sparks(Squad.Position + Vector3.up, color, _ctx.LowQuality ? 16 : 34, 7f, 0.45f);
+            _ctx.Audio.Play(Sfx.PowerUp);
+            Haptics.Tap(25);
+            StartNextWave();
+        }
+
+        /// <summary>Deals three new cards (once per run).</summary>
+        public bool Reroll()
+        {
+            if (!ChoosingBuff || Rerolls <= 0) return false;
+            Rerolls--;
+            Buff[] fresh = Buffs.Roll(_buffRng, 3, Mods, this);
+            if (fresh.Length > 0) Options = fresh;
+            _ctx.Audio.Play(Sfx.Click);
+            return true;
+        }
+
+        void StartNextWave()
+        {
+            Wave++;
+            // OVERDRIVE: a share of the army burns out at the start of every wave
+            if (Mods.WaveLoss > 0f && Squad.Count > 1)
+            {
+                int lost = Mathf.Min(Squad.Count - 1, Mathf.Max(1, Mathf.RoundToInt(Squad.Count * Mods.WaveLoss)));
+                Stats.LostGates += Squad.Lose(lost, Squad.Position, false);
+                _ctx.Labels.Popup("OVERDRIVE -" + Fmt.Num(lost), Squad.Position + new Vector3(0f, 2.6f, 0.5f), GateView.BadColor, 0.9f);
+            }
+            bool last = Wave >= Waves - 1;
+            Banner(last ? "FINAL WAVE" : "WAVE " + (Wave + 1) + " / " + Waves, last ? "THE BOSS WAITS AT THE END" : "HERE THEY COME!",
+                last ? UIFactory.Red : UIFactory.Gold);
+        }
+
+        int IBuffTarget.Soldiers => Squad.Count;
+        int IBuffTarget.Fallen => Squad.Fallen;
+        bool IBuffTarget.LineUnlocked(UnitLine line) => Units.IsUnlocked(line, Mathf.Max(Def.level, _ctx.Save.bestLevel));
+        bool IBuffTarget.CanClassUp => Squad.Army.CanClassUp;
+
+        void IBuffTarget.AddSoldiers(int n, UnitLine? line)
+        {
+            if (n <= 0) return;
+            if (line.HasValue) Squad.Recruit(line.Value, n, Squad.Position);
+            else Squad.Gain(n, Squad.Position);
+            _ctx.Labels.Popup("+" + Fmt.Num(n), Squad.Position + new Vector3(0f, 2.3f, 0.5f), GateView.GoodColor, 1.2f, 1.1f);
+            _ctx.Audio.Play(Sfx.Recruit);
+        }
+
+        void IBuffTarget.Revive(int n)
+        {
+            int back = Squad.Recover(n);
+            if (back > 0) _ctx.Labels.Popup("+" + Fmt.Num(back), Squad.Position + new Vector3(0f, 2.3f, 0.5f), new Color(1f, 0.95f, 0.55f), 1.2f, 1.1f);
+            _ctx.Audio.Play(Sfx.Revive, 0.7f);
+        }
+
+        void IBuffTarget.LoseShare(float share)
+        {
+            // a card never takes the last soldier
+            int lost = Mathf.Min(Squad.Count - 1, Mathf.Max(1, Mathf.RoundToInt(Squad.Count * share)));
+            if (lost <= 0) return;
+            Stats.LostGates += Squad.Lose(lost, Squad.Position, false);
+            _ctx.Labels.Popup("-" + Fmt.Num(lost), Squad.Position + new Vector3(0f, 2.3f, 0.5f), GateView.BadColor, 1.1f);
+            _ctx.Camera.Shake(0.2f);
+        }
+
+        bool IBuffTarget.ClassUp() => Promote();
+
+        void IBuffTarget.FillSkill() => _skill = SkillNeeded;
+
         // --- Helpers for the auto pilot / tests ---------------------------------------------
 
         public GateRow NextGateRow()
@@ -1156,5 +1351,7 @@ namespace NumberRoad.Gameplay
         }
 
         public bool ShotThreat(out float landX) => _shots.Threat(Squad.X, Squad.Z, out landX);
+
+        public bool HazardAhead(out float hazardX) => Swarm.HazardAhead(Squad.X, Squad.Z, out hazardX);
     }
 }
