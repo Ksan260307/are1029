@@ -5,8 +5,8 @@ namespace NumberRoad.Gameplay
 {
     /// <summary>
     /// Simple bot that plays like a sensible player: dodges enemy shots and burning ground, takes the better
-    /// gate, chases gold goblins, runs over "+n" strips, lines up with crates, fires VOLLEY when it is ready and
-    /// picks the strongest buff card between waves. Used by the play-mode tests and handy for checking new
+    /// gate, blocks lanes of enemies that would ram the war wagon, chases gold goblins, runs over "+n" strips, lines
+    /// up with crates and picks the strongest buff card between waves. Used by the play-mode tests and handy for checking new
     /// levels hands-free (toggle with F1 in the editor).
     /// </summary>
     public static class AutoPilot
@@ -15,7 +15,6 @@ namespace NumberRoad.Gameplay
 
         public static float SteerTowards(LevelSession session, float dt)
         {
-            if (session.SkillReady) session.UseSkill();
             Squad squad = session.Squad;
             float target = ChooseX(session);
             float delta = target - squad.TargetX;
@@ -40,6 +39,13 @@ namespace NumberRoad.Gameplay
                 if (locked != null && row.Z - squad.Z > 7f) return locked.CenterX;
                 return BestGate(row, squad).CenterX;
             }
+
+            // a lane of enemies about to slip past: stand in its way when they would wreck the wagon, or when the
+            // army easily outnumbers them; otherwise let them through and keep the soldiers
+            float threat = session.BreachThreat(out float blockX, out int lane);
+            bool wrecks = threat >= session.BaseHealth - 0.1f;
+            bool easy = squad.Count >= lane * 3;
+            if (threat > 0f && (wrecks || easy)) return Mathf.Clamp(blockX, -Balance.SquadMaxX, Balance.SquadMaxX);
 
             if (session.HazardAhead(out float hazardX))
             {
@@ -100,8 +106,6 @@ namespace NumberRoad.Gameplay
                 case "rapid": return 1.3f;
                 case "drill": return 1.1f;
                 case "combo": return 1.02f;
-                case "focus": return 1.06f;
-                case "storm": return 1.06f;
                 case "wide": return 1.12f;
                 case "training": return 1.21f;
                 case "flame": return 1.25f;
@@ -128,6 +132,8 @@ namespace NumberRoad.Gameplay
                 case "regen": return 1.08f + Mathf.Min(0.3f, fallen);
                 case "second": return 1.1f;
                 case "ward": return 1.12f;
+                case "repair": return 1f + (1f - session.BaseHealth) * 0.8f;
+                case "plating": return session.BaseHealth < 0.7f ? 1.15f : 1.05f;
                 case "conscription": return 1.3f;
                 case "mercs": return 1.5f;
                 case "promotion": return 1.45f;
@@ -137,10 +143,16 @@ namespace NumberRoad.Gameplay
                 case "allin": return 1.8f;
                 case "overflow": return 1.2f;
                 case "slowtime": return 1.08f;
-                case "charged": return 1.05f;
                 case "veteran": return 1.2f;
                 default: return buff.Kind == BuffKind.Troops ? 1.25f : 1.1f;
             }
+        }
+
+        static float Average(PowerModel model, GateEffect[] faces)
+        {
+            float sum = 0f;
+            foreach (GateEffect e in faces) sum += model.ScoreAfter(e);
+            return sum / faces.Length;
         }
 
         static GateView LockedGate(GateRow row)
@@ -169,8 +181,11 @@ namespace NumberRoad.Gameplay
             float bestScore = float.MinValue;
             foreach (GateView g in row.Gates)
             {
-                // the bot cannot see behind a "?" and gains nothing from a gate that is still locked
-                float score = g.Locked || g.Mystery ? stay * (g.Mystery ? 1.05f : 1f) : model.ScoreAfter(g.Effect);
+                // the bot cannot see behind a "?", gains nothing from a gate that is still locked and cannot time a
+                // roulette, so it counts on the roulette's average
+                float score = g.Locked || g.Mystery ? stay * (g.Mystery ? 1.05f : 1f)
+                    : g.Spec.roulette != null ? Average(model, g.Spec.roulette)
+                    : model.ScoreAfter(g.Effect);
                 if (score > bestScore)
                 {
                     bestScore = score;

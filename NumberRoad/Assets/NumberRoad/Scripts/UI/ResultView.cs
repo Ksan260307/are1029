@@ -56,7 +56,7 @@ namespace NumberRoad.UI
             panel.gameObject.AddComponent<PopIn>();
             RectTransform p = panel.rectTransform;
 
-            _title = UIFactory.Text(p, "Title", "VICTORY!", 108, UIFactory.Gold, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 6f);
+            _title = UIFactory.Text(p, "Title", Loc.T("VICTORY!"), 108, UIFactory.Gold, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 6f);
             UIFactory.Place(_title.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -30f), new Vector2(820f, 136f));
             _subtitle = UIFactory.Text(p, "Subtitle", string.Empty, 44, UIFactory.Ink);
             UIFactory.Place(_subtitle.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -166f), new Vector2(820f, 60f));
@@ -96,7 +96,7 @@ namespace NumberRoad.UI
             _gems = UIFactory.Text(gemsRow, "Value", "+0", 50, UIFactory.Cyan, TextAnchor.MiddleLeft, UIFactory.OutlineDark, 3f);
             UIFactory.Place(_gems.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 0.5f), new Vector2(-34f, 0f), new Vector2(300f, 60f));
 
-            _chest = UIFactory.Button(p, "Chest", "TAP TO OPEN", GameContext.WoodColor, 32, OnChest, out _chestText);
+            _chest = UIFactory.Button(p, "Chest", Loc.T("TAP TO OPEN"), GameContext.WoodColor, 32, OnChest, out _chestText);
             _chestRect = (RectTransform)_chest.transform;
             UIFactory.Place(_chestRect, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0f, -990f), new Vector2(360f, 140f));
             Image band = UIFactory.Image(_chest.targetGraphic.transform, "Band", UIFactory.Gold, GameAssets.RoundedSprite);
@@ -105,13 +105,13 @@ namespace NumberRoad.UI
             _awards = UIFactory.Text(p, "Awards", string.Empty, 32, UIFactory.Purple);
             UIFactory.Place(_awards.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0f, -1084f), new Vector2(800f, 44f));
 
-            _next = UIFactory.Button(p, "Next", "NEXT", UIFactory.Blue, 64, game.Next, out _);
+            _next = UIFactory.Button(p, "Next", Loc.T("NEXT"), UIFactory.Blue, 64, game.Next, out _);
             UIFactory.Place((RectTransform)_next.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-90f, 40f), new Vector2(480f, 140f));
-            _home = UIFactory.Button(p, "Home", "HOME", UIFactory.Gray, 46, game.Home, out _);
+            _home = UIFactory.Button(p, "Home", Loc.T("HOME"), UIFactory.Gray, 46, game.Home, out _);
             UIFactory.Place((RectTransform)_home.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(270f, 40f), new Vector2(210f, 140f));
-            _retry = UIFactory.Button(p, "Retry", "RETRY", UIFactory.Gold, 64, game.Retry, out _);
+            _retry = UIFactory.Button(p, "Retry", Loc.T("RETRY"), UIFactory.Gold, 64, game.Retry, out _);
             UIFactory.Place((RectTransform)_retry.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-90f, 40f), new Vector2(480f, 140f));
-            _revive = UIFactory.Button(p, "Revive", "REVIVE", UIFactory.Purple, 44, () => game.Revive(), out _reviveText);
+            _revive = UIFactory.Button(p, "Revive", Loc.T("REVIVE"), UIFactory.Purple, 44, () => game.Revive(), out _reviveText);
             UIFactory.Place((RectTransform)_revive.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 200f), new Vector2(700f, 120f));
         }
 
@@ -124,10 +124,10 @@ namespace NumberRoad.UI
             _starCount = 0;
             bool won = result.Won;
 
-            _title.text = won ? "VICTORY!" : result.Endless ? "GAME OVER" : "DEFEAT";
+            _title.text = Loc.T(won ? "VICTORY!" : result.Endless ? "GAME OVER" : "DEFEAT");
             _title.color = won ? UIFactory.Gold : UIFactory.Red;
-            string what = result.Endless ? "ENDLESS  -  STAGE " + result.EndlessStage : result.Daily ? "DAILY CHALLENGE" : "LEVEL " + result.Level;
-            _subtitle.text = won ? what + " CLEAR" : what;
+            string what = result.Endless ? Loc.F("ENDLESS  -  STAGE {0}", result.EndlessStage) : result.Daily ? Loc.T("DAILY CHALLENGE") : Loc.F("LEVEL {0}", result.Level);
+            _subtitle.text = won ? Loc.F("{0} CLEAR", what) : what;
 
             foreach (Image s in _stars)
             {
@@ -142,26 +142,30 @@ namespace NumberRoad.UI
                 if (result.Endless)
                 {
                     int bosses = result.EndlessBosses;
-                    _detail.text = bosses + (bosses == 1 ? " BOSS" : " BOSSES") + " DEFEATED" + (result.NewEndlessBest ? "  -  NEW RECORD!" : string.Empty) +
-                                   "\nENEMIES WERE +" + result.EnemyPowerPercent + "% STRONGER";
+                    _detail.text = Loc.F(bosses == 1 ? "{0} BOSS DEFEATED" : "{0} BOSSES DEFEATED", bosses) + (result.NewEndlessBest ? Loc.T("  -  NEW RECORD!") : string.Empty) +
+                                   "\n" + Loc.F("ENEMIES WERE +{0}% STRONGER", result.EnemyPowerPercent);
                     _detail.color = result.NewEndlessBest ? UIFactory.GoldDark : UIFactory.Red;
+                }
+                else if (result.BaseDestroyed)
+                {
+                    _detail.text = Loc.T("ENEMIES BROKE THROUGH\nAND WRECKED YOUR WAR WAGON");
                 }
                 else if (result.BossHpLeft > 0f)
                 {
                     int left = Mathf.Max(1, Mathf.RoundToInt(result.BossHpLeft * 100f));
-                    _detail.text = result.BossName + " HAD " + left + "% HP LEFT" + (left <= 25 ? "\nSO CLOSE!" : string.Empty);
+                    _detail.text = Loc.F("{0} HAD {1}% HP LEFT", Loc.T(result.BossName), left) + (left <= 25 ? "\n" + Loc.T("SO CLOSE!") : string.Empty);
                 }
                 else
                 {
-                    _detail.text = "REACHED " + Mathf.RoundToInt(result.Progress * 100f) + "% OF THE ROAD";
+                    _detail.text = Loc.F("REACHED {0}% OF THE ROAD", Mathf.RoundToInt(result.Progress * 100f));
                 }
             }
 
             var rows = new List<(string, string)>();
             CultureInfo c = CultureInfo.InvariantCulture;
             RunStats st = result.Stats;
-            rows.Add(("ENEMIES  (" + Fmt.Num(st.Kills) + ")", "+" + Fmt.Num(Mathf.RoundToInt(st.KillCoins))));
-            if (st.ComboCoins >= 1f) rows.Add(("COMBO BONUS  (BEST " + st.BestCombo + ")", "+" + Fmt.Num(Mathf.RoundToInt(st.ComboCoins))));
+            rows.Add((Loc.F("ENEMIES  ({0})", Fmt.Num(st.Kills)), "+" + Fmt.Num(Mathf.RoundToInt(st.KillCoins))));
+            if (st.ComboCoins >= 1f) rows.Add((Loc.F("COMBO BONUS  (BEST {0})", st.BestCombo), "+" + Fmt.Num(Mathf.RoundToInt(st.ComboCoins))));
             if (st.BonusCoins >= 1f) rows.Add(("PERFECT / CHAIN / CRATES", "+" + Fmt.Num(Mathf.RoundToInt(st.BonusCoins))));
             if (st.VictoryCoins > 0) rows.Add(("VICTORY", "+" + Fmt.Num(st.VictoryCoins)));
             if (st.BossCoins > 0) rows.Add(("BOSS", "+" + Fmt.Num(st.BossCoins)));
@@ -173,7 +177,7 @@ namespace NumberRoad.UI
             for (int i = 0; i < Rows; i++)
             {
                 bool on = i < rows.Count;
-                _rowLabels[i].text = on ? rows[i].Item1 : string.Empty;
+                _rowLabels[i].text = on ? Loc.T(rows[i].Item1) : string.Empty;
                 _rowValues[i].text = on ? rows[i].Item2 : string.Empty;
             }
             _total.text = "+0";
@@ -182,19 +186,19 @@ namespace NumberRoad.UI
 
             _chest.gameObject.SetActive(won);
             _chest.interactable = true;
-            _chestText.text = "TAP TO OPEN";
+            _chestText.text = Loc.T("TAP TO OPEN");
             _chestText.fontSize = 32;
             _chestRect.localRotation = Quaternion.identity;
 
             int ready = Achievements.ReadyCount(save);
-            _awards.text = ready > 0 ? ready + (ready == 1 ? " AWARD" : " AWARDS") + " READY TO CLAIM AT HOME!" : string.Empty;
+            _awards.text = ready > 0 ? Loc.F(ready == 1 ? "{0} AWARD READY TO CLAIM AT HOME!" : "{0} AWARDS READY TO CLAIM AT HOME!", ready) : string.Empty;
             // the total, gems, chest and notice follow right under however many breakdown rows there are
             float bottom = -380f - Mathf.Max(1, rows.Count) * 44f;
             _coinIcon.anchoredPosition = new Vector2(-190f, bottom - 50f);
             _total.rectTransform.anchoredPosition = new Vector2(-136f, bottom - 50f);
             _score.rectTransform.anchoredPosition = new Vector2(0f, bottom - 112f);
-            _score.text = "SCORE " + Fmt.Coins(result.Score) + (result.Rank > 0 ? "    RANK #" + result.Rank : string.Empty) +
-                          (result.Rank == 1 && save.ranking.Count > 1 ? "  NEW BEST!" : string.Empty);
+            _score.text = Loc.F("SCORE {0}", Fmt.Coins(result.Score)) + (result.Rank > 0 ? Loc.F("    RANK #{0}", result.Rank) : string.Empty) +
+                          (result.Rank == 1 && save.ranking.Count > 1 ? Loc.T("  NEW BEST!") : string.Empty);
             _score.color = result.Rank == 1 ? UIFactory.GoldDark : UIFactory.Blue;
             _gemsRect.anchoredPosition = new Vector2(0f, bottom - 172f);
             float below = result.Gems > 0 ? bottom - 240f : bottom - 170f;
@@ -208,7 +212,7 @@ namespace NumberRoad.UI
             if (revive)
             {
                 bool affordable = save.gems >= Balance.ReviveGems;
-                _reviveText.text = "REVIVE HERE  -  " + Balance.ReviveGems + " GEMS" + (affordable ? string.Empty : "  (HAVE " + save.gems + ")");
+                _reviveText.text = Loc.F("REVIVE HERE  -  {0} GEMS", Balance.ReviveGems) + (affordable ? string.Empty : Loc.F("  (HAVE {0})", save.gems));
                 _revive.interactable = affordable;
                 UIFactory.SetButtonColor(_revive, affordable ? UIFactory.Purple : UIFactory.Gray);
             }
@@ -254,7 +258,7 @@ namespace NumberRoad.UI
                 {
                     _chestRect.localRotation = Quaternion.identity;
                     _game.OpenChest();
-                    _chestText.text = _result.ChestGems > 0 ? "+" + _result.ChestGems + " GEMS!" : "+" + Fmt.Coins(_result.ChestCoins) + " COINS!";
+                    _chestText.text = _result.ChestGems > 0 ? Loc.F("+{0} GEMS!", _result.ChestGems) : Loc.F("+{0} COINS!", Fmt.Coins(_result.ChestCoins));
                     _chestText.fontSize = 42;
                 }
             }

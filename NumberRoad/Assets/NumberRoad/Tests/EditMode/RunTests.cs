@@ -45,6 +45,39 @@ namespace NumberRoad.Tests
         }
 
         [Test]
+        public void ShotsToKill_CountsShieldsRevivesSplitsAndFlyers()
+        {
+            EnemyType grunt = Enemy("grunt"), shield = Enemy("shield"), skeleton = Enemy("skeleton"), slime = Enemy("slime"), bat = Enemy("bat");
+            Assert.AreEqual(1f, Combat.ShotsToKill(grunt, 1f, 1f, 1f, 1f, 1f), 1e-5f, "a plain enemy takes one even shot");
+            Assert.AreEqual(0.5f, Combat.ShotsToKill(grunt, 1f, 1f, 2f, 1f, 1f), 1e-5f, "a piercing shot reaches two");
+
+            float bare = 1f / Combat.KillsPerHit(1f, shield.Hp);
+            Assert.AreEqual(bare + 3f, Combat.ShotsToKill(shield, 1f, 1f, 1f, 1f, 0f), 1e-4f, "bolts first break a shield of twice its HP");
+            Assert.AreEqual(bare / 2f + 3f, Combat.ShotsToKill(shield, 1f, 1f, 2f, 1f, 0f), 1e-4f, "and do not pierce it");
+            Assert.AreEqual(bare, Combat.ShotsToKill(shield, 1f, 1f, 1f, 0f, 0f), 1e-4f, "lobs and smites go over it");
+
+            Assert.Greater(Combat.ShotsToKill(skeleton, 1f, 1f, 1f, 1f, 0f), 1f / Combat.KillsPerHit(1f, skeleton.Hp), "skeletons get back up");
+            Assert.Greater(Combat.ShotsToKill(slime, 1f, 1f, 1f, 1f, 0f), 1f / Combat.KillsPerHit(1f, slime.Hp / Combat.ResistMultiplier), "slimes split");
+
+            float seeking = Combat.ShotsToKill(bat, 1f, 1f, 1f, 1f, 0f);
+            Assert.AreEqual(seeking / (1f - Combat.FlyerMiss), Combat.ShotsToKill(bat, 1f, 1f, 1f, 1f, 1f), 1e-4f, "straight bolts often miss bats");
+        }
+
+        [Test]
+        public void Units_ThatGoOverShields_AreNotFrontal()
+        {
+            foreach (UnitClass u in Units.All)
+            {
+                bool over = u.Style == AttackStyle.Lob || u.Style == AttackStyle.Smite || u.Style == AttackStyle.Chain || u.Style == AttackStyle.Sweep;
+                Assert.AreEqual(!over, u.Frontal, u.Name);
+                if (u.MissesFlyers) Assert.IsTrue(u.Frontal, u.Name);
+            }
+            var bows = new Army(UnitLine.Bow, 10);
+            Assert.AreEqual(1f, bows.DamageShare(u => u.Frontal), 1e-5f);
+            Assert.AreEqual(0f, bows.DamageShare(u => u.MissesFlyers), 1e-5f, "archers seek");
+        }
+
+        [Test]
         public void Enemies_HaveWeaknesses_NeverBothWeakAndResistant()
         {
             int withWeakness = 0;
@@ -118,7 +151,8 @@ namespace NumberRoad.Tests
             public int Revived;
             public float Lost;
             public int ClassUps;
-            public bool Filled;
+            public float Repaired;
+            public float BaseHealth { get; set; } = 0.5f;
 
             public bool LineUnlocked(UnitLine line) => true;
 
@@ -137,9 +171,9 @@ namespace NumberRoad.Tests
                 return true;
             }
 
-            public void FillSkill() => Filled = true;
+            public void RepairBase(float share) => Repaired += share;
 
-            public bool Touched => Added > 0 || Revived > 0 || Lost > 0f || ClassUps > 0 || Filled;
+            public bool Touched => Added > 0 || Revived > 0 || Lost > 0f || ClassUps > 0 || Repaired > 0f;
         }
 
         static string Snapshot(RunMods m)
@@ -209,6 +243,8 @@ namespace NumberRoad.Tests
             var target = new FakeTarget { Fallen = 0, CanClassUp = false };
             Assert.IsFalse(Buffs.Get("medic").Usable(mods, target), "nobody to heal");
             Assert.IsFalse(Buffs.Get("promotion").Usable(mods, target), "everyone is at the top class");
+            target.BaseHealth = 1f;
+            Assert.IsFalse(Buffs.Get("repair").Usable(mods, target), "the war wagon is not damaged");
             Buff frost = Buffs.Get("frost");
             frost.Apply(mods, target);
             Assert.IsFalse(frost.Usable(mods, target), "one per run");
@@ -372,6 +408,114 @@ namespace NumberRoad.Tests
             Assert.AreEqual(2, save.gameSpeed, "settings survive a reset");
             Assert.IsTrue(save.fastMarch);
             Assert.AreEqual(0, save.endlessBest, "records go with the progress");
+        }
+    }
+
+    public class WarWagonTests
+    {
+        [Test]
+        public void BaseHp_GrowsWithTheHordes_AndTheUpgradeToughensIt()
+        {
+            Assert.Greater(Balance.BaseHp(1), Balance.HordeSize(1) * 0.3f * 0.5f, "half a lane of enemies does not wreck it");
+            Assert.LessOrEqual(Balance.BaseHp(1), Balance.HordeSize(1), "a whole horde does");
+            Assert.Greater(Balance.BaseHp(20), Balance.BaseHp(1) * 3f);
+            Assert.AreEqual(1f, Balance.BaseToughness(0), 1e-5f);
+            Assert.Greater(Balance.BaseToughness(5), Balance.BaseToughness(4));
+        }
+
+        [Test]
+        public void OldVolleyUpgrade_CarriesOverToTheBase()
+        {
+            SaveData save = SaveSystem.FromJson("{\"level\":4,\"bestLevel\":4,\"skillLevel\":3}");
+            Assert.AreEqual(3, save.GetUpgrade(UpgradeKind.Base));
+            Assert.AreEqual(0, save.skillLevel);
+            save.Sanitize();
+            Assert.AreEqual(3, save.GetUpgrade(UpgradeKind.Base), "moved over once, not twice");
+        }
+
+        [Test]
+        public void VolleyIsGone_FromTheCards()
+        {
+            foreach (Buff b in Buffs.All)
+            {
+                StringAssert.DoesNotContain("VOLLEY", b.Description, b.Id);
+            }
+            Assert.IsNotNull(Buffs.Get("repair"));
+            Assert.IsNotNull(Buffs.Get("plating"));
+        }
+    }
+
+    public class LocTests
+    {
+        [Test]
+        public void EveryNameAndDescription_HasJapanese()
+        {
+            var missing = new List<string>();
+
+            void Need(string en)
+            {
+                if (!Loc.Translated(en)) missing.Add(en);
+            }
+
+            foreach (UnitClass u in Units.All)
+            {
+                Need(u.Name);
+                Need(u.Description);
+            }
+            foreach (EnemyType t in Enemies.All)
+            {
+                Need(t.Name);
+                Need(t.Description);
+            }
+            foreach (BossType b in Enemies.Bosses)
+            {
+                Need(b.Name);
+                Need(b.Description);
+            }
+            foreach (Buff b in Buffs.All)
+            {
+                Need(b.Name);
+                Need(b.Description);
+                Need(Buffs.KindName(b.Kind));
+            }
+            foreach (Biome b in Biomes.All) Need(b.Name);
+            foreach (Achievement a in Achievements.All) Need(a.Name);
+            for (int l = 0; l < Units.Lines; l++) Need(Units.LineName((UnitLine)l));
+            foreach (AttackStyle s in System.Enum.GetValues(typeof(AttackStyle))) Need(Units.StyleName(s));
+            foreach (Element e in System.Enum.GetValues(typeof(Element))) Need(Units.ElementName(e));
+            Assert.IsEmpty(missing, string.Join("\n", missing));
+        }
+
+        [Test]
+        public void Japanese_FillsThePlaceholders_AndFallsBackToEnglish()
+        {
+            Language before = Loc.Language;
+            try
+            {
+                Loc.Language = Language.Japanese;
+                Assert.AreEqual("レベル 7", Loc.F("LEVEL {0}", 7));
+                Assert.AreEqual("not in the table", Loc.T("not in the table"));
+                Assert.AreEqual("x1.4", Loc.Upper("x1.4"), "Japanese is not upper-cased");
+                Assert.AreEqual("討伐者 II", Achievements.TitleOf(Achievements.All[1]));
+                Loc.Language = Language.English;
+                Assert.AreEqual("LEVEL 7", Loc.F("LEVEL {0}", 7));
+                Assert.AreEqual("X1.4", Loc.Upper("x1.4"));
+                Assert.AreEqual("SLAYER II", Achievements.TitleOf(Achievements.All[1]));
+            }
+            finally
+            {
+                Loc.Language = before;
+            }
+        }
+
+        [Test]
+        public void NewSaves_AreJapanese_AndTheChoiceSurvivesAReset()
+        {
+            Assert.AreEqual((int)Language.Japanese, new SaveData().language);
+            var save = new SaveData { language = (int)Language.English, level = 9, bestLevel = 9 };
+            save.ResetProgress();
+            Assert.AreEqual((int)Language.English, save.language);
+            Assert.That(SaveSystem.FromJson("{\"language\":7}").language, Is.InRange(0, 1), "an unknown language falls back to one the game has");
         }
     }
 

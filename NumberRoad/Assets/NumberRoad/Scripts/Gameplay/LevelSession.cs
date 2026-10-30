@@ -52,22 +52,20 @@ namespace NumberRoad.Gameplay
         public int LostShots;
         public int LostBoss;
         public int LostGates;
+        /// <summary>Share of the war wagon knocked off by enemies that slipped past.</summary>
+        public float BaseDamage;
 
         public float Coins => KillCoins + ComboCoins + BonusCoins + VictoryCoins + BossCoins;
     }
 
     /// <summary>
     /// One play-through of a level: streams the <see cref="LevelDefinition"/> onto the road as the squad marches,
-    /// resolves gates, bullets and contacts, runs combos, the VOLLEY skill, the waves with their buff picks, the
-    /// boss fight and the revive, and reports the result. Owns every object it creates.
+    /// resolves gates, bullets and contacts, runs combos, the waves with their buff picks, the war wagon the enemies
+    /// must not reach, the boss fight and the revive, and reports the result. Owns every object it creates.
     /// </summary>
     public sealed class LevelSession : ISwarmHost, IBossHost, IBuffTarget
     {
         public const float CountdownTime = 1.3f;
-        const float VolleyTime = 0.9f;
-        const float VolleyImpact = 0.35f;
-        const float VolleyNear = 1.5f;
-        const float VolleyFar = 26f;
 
         sealed class HordeStream
         {
@@ -76,12 +74,6 @@ namespace NumberRoad.Gameplay
             public bool[] Elite;
             public int Next;
             public bool Announced;
-        }
-
-        struct VolleyArrow
-        {
-            public Vector3 Target;
-            public float Delay;
         }
 
         public readonly LevelDefinition Def;
@@ -114,8 +106,14 @@ namespace NumberRoad.Gameplay
         public int EndlessStage { get; }
         /// <summary>FAST MARCH: hurry across the road while no enemy is near.</summary>
         public bool FastMarch { get; set; }
-        /// <summary>True while fast march is actually speeding the squad up.</summary>
+        /// <summary>DASH held (button or Space): charge forward faster still while it is down.</summary>
+        public bool Dash { get; set; }
+        /// <summary>True while the squad marches faster than normal (FAST MARCH or DASH).</summary>
         public bool Rushing => _march > 1.05f;
+        /// <summary>The war wagon's health, 0..1. Enemies that slip past the squad wear it down; at zero the run is lost.</summary>
+        public float BaseHealth => _base;
+        /// <summary>True when the run was lost because the war wagon fell.</summary>
+        public bool BaseDestroyed { get; private set; }
         public event Action<bool> Finished;
 
         public int Waves => Mathf.Max(1, Def.waves);
@@ -127,9 +125,6 @@ namespace NumberRoad.Gameplay
         public float Progress => _bossFight ? 1f : Mathf.Clamp01(Squad.Z / Mathf.Max(1f, Def.length));
         public bool IsOver => Phase == SessionPhase.Won || Phase == SessionPhase.Lost;
         public bool Fighting => Phase == SessionPhase.Running || Phase == SessionPhase.BossFight;
-        public int SkillNeeded => Mathf.Max(5, Mathf.RoundToInt(Balance.SkillCharge(Def.level, _ctx.Save.skillLevel) / Mods.SkillCharge));
-        public float SkillCharge01 => Mathf.Clamp01(_skill / SkillNeeded);
-        public bool SkillReady => _skill >= SkillNeeded && Fighting && Countdown <= 0f && !ChoosingBuff;
         public bool CanRevive => Phase == SessionPhase.Lost && !Revived;
 
         readonly GameContext _ctx;
@@ -142,21 +137,18 @@ namespace NumberRoad.Gameplay
         readonly List<HordeStream> _streams = new List<HordeStream>();
         readonly List<IBulletTarget> _targets = new List<IBulletTarget>();
         readonly List<Vector4> _shadows = new List<Vector4>();
-        readonly List<VolleyArrow> _volley = new List<VolleyArrow>();
         readonly InstancedBatch _batch = new InstancedBatch();
         readonly Action<Vector3, int, bool> _onShotHit;
         readonly Rng _buffRng;
+        readonly WarWagon _wagon;
         readonly int _recordToBeat;
         int _nextEvent;
         bool _bossSpawned;
         bool _bossFight;
         bool _finishedRaised;
         bool _recordShown;
-        bool _skillHinted;
         float _endClock;
         float _comboClock;
-        float _skill;
-        float _volleyClock = -1f;
         float _confetti;
         float _critClock;
         float _stripClock;
@@ -166,13 +158,17 @@ namespace NumberRoad.Gameplay
         float _burnAccum;
         float _burnClock;
         float _march = 1f;
+        float _base = 1f;
+        float _baseLossShown;
+        float _baseClock;
         int _chain;
 
         /// <param name="mods">Buffs carried over from the endless stage before (null: a fresh run).</param>
         /// <param name="enemyPower">Multiplier on enemy HP and hits (see <see cref="EnemyPower"/>).</param>
         /// <param name="endlessStage">Endless stage number, 0 outside endless mode.</param>
+        /// <param name="baseHealth">War wagon health carried over from the endless stage before.</param>
         public LevelSession(GameContext ctx, LevelDefinition def, Army army, WeaponStats weapon, RunMods mods = null, float enemyPower = 1f,
-            int endlessStage = 0)
+            int endlessStage = 0, float baseHealth = 1f)
         {
             _ctx = ctx;
             Def = def;
@@ -182,6 +178,9 @@ namespace NumberRoad.Gameplay
             SaveData save = ctx.Save;
             Squad = new Squad(ctx, army, weapon, save.GuardBonus, save.RecruitBonus, save.StartLine);
             if (mods != null) Squad.Mods = mods;
+            _base = Mathf.Clamp(baseHealth, 0.05f, 1f);
+            _wagon = new WarWagon(ctx, _root.transform, new Vector3(0f, 0f, Squad.Z - Squad.HalfDepth - WarWagon.Gap - WarWagon.HalfDepth));
+            _wagon.SetHealth(_base);
             Swarm = new Swarm(this, ctx);
             _bullets = new BulletSystem(ctx);
             _bullets.Bind(Swarm, Mods);
@@ -202,13 +201,16 @@ namespace NumberRoad.Gameplay
             if (EndlessStage > 0)
             {
                 int percent = Mathf.RoundToInt((EnemyPower - 1f) * 100f);
-                Banner("STAGE " + EndlessStage, percent > 0 ? "ENEMIES +" + percent + "% STRONGER  -  " + Waves + " WAVES" : "ENDLESS  -  " + Waves + " WAVES",
+                Banner(Loc.F("STAGE {0}", EndlessStage), percent > 0 ? Loc.F("ENEMIES +{0}% STRONGER  -  {1} WAVES", percent, Waves) : Loc.F("ENDLESS  -  {0} WAVES", Waves),
                     percent > 0 ? new Color(1f, 0.6f, 0.5f) : UIFactory.Gold);
             }
             else if (Def.daily) Banner("DAILY CHALLENGE", "DOUBLE HORDES - DOUBLE REWARDS", UIFactory.Gold);
-            else Banner("LEVEL " + Def.level, biome.Name + "  -  " + Waves + " WAVES", Color.white);
-            if (Def.castle) Banner("CASTLE SIEGE", "DEFEAT THE BOSS FOR " + Balance.CastleGems + " GEMS", UIFactory.Gold);
-            else if (Def.goldRush) Banner("GOLD RUSH", "COINS x" + Balance.GoldRushCoins.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " - CATCH THE GOLD GOBLINS", UIFactory.Gold);
+            else Banner(Loc.F("LEVEL {0}", Def.level), Loc.F("{0}  -  {1} WAVES", Loc.T(biome.Name), Waves), Color.white);
+            if (Def.castle) Banner("CASTLE SIEGE", Loc.F("DEFEAT THE BOSS FOR {0} GEMS", Balance.CastleGems), UIFactory.Gold);
+            else if (Def.goldRush)
+            {
+                Banner("GOLD RUSH", Loc.F("COINS x{0} - CATCH THE GOLD GOBLINS", Balance.GoldRushCoins.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)), UIFactory.Gold);
+            }
 
             // things already placed on the road while the title screen was showing
             for (int i = 0; i < _nextEvent; i++)
@@ -218,6 +220,7 @@ namespace NumberRoad.Gameplay
                 foreach (HordeUnit u in ev.units) Introduce(u.type);
             }
             foreach (GateRow row in _gates) GateHints(row);
+            ShowHint(Core.Hint.Dash, "HOLD DASH (OR SPACE) TO CHARGE AHEAD - TIME IT TO HIT THE GATE YOU WANT!");
         }
 
         void Banner(string title, string subtitle, Color color, string portrait = null)
@@ -234,6 +237,7 @@ namespace NumberRoad.Gameplay
         public void TickIdle(float dt)
         {
             Squad.Tick(dt, false);
+            _wagon.Follow(Squad, dt);
             Swarm.Tick(dt, Squad, false);
             Swarm.Compact(Squad.Z - Balance.DespawnBehind);
             foreach (GateRow g in _gates) g.Tick(dt, Squad.X, Squad.Z);
@@ -280,6 +284,8 @@ namespace NumberRoad.Gameplay
                 CheckCrates();
             }
 
+            // enemies that get behind the squad run on into the war wagon
+            Swarm.BreachZ = Squad.Z - Squad.HalfDepth - WarWagon.Gap;
             Swarm.Tick(dt, Squad, fighting && Countdown <= 0f);
             Boss?.Tick(dt, Squad, fighting);
             Swarm.Compact(Squad.Z - Balance.DespawnBehind);
@@ -290,13 +296,13 @@ namespace NumberRoad.Gameplay
             RebuildTargets();
             _bullets.Tick(dt, _targets);
             _shots.Tick(dt, Squad, _ctx, _onShotHit);
-            TickVolley(dt);
 
             foreach (GateRow g in _gates) g.Tick(dt, Squad.X, Squad.Z);
             foreach (StripTile s in _strips) s.Tick(dt);
             foreach (Crate c in _crates) c.Tick(dt);
 
             Squad.Tick(dt, advance > 0f && fighting);
+            _wagon.Follow(Squad, dt);
             Swarm.UpdateLabels(Squad.Z);
             _ctx.Camera.SetCrowdZoom(Mathf.InverseLerp(10f, Balance.MaxVisibleSoldiers, Squad.VisibleCount) * 2.6f);
 
@@ -307,14 +313,21 @@ namespace NumberRoad.Gameplay
             CheckEnd(dt);
         }
 
-        /// <summary>FAST MARCH: the pace eases up while the road ahead is clear and drops back as soon as enemies are near.</summary>
+        /// <summary>
+        /// FAST MARCH keeps the squad hurrying the whole way; holding DASH charges faster still. The pace eases in and
+        /// out, and the squad still stops for the countdown and for enemies hammering its front.
+        /// </summary>
         void TickMarch(float dt, bool blocked)
         {
-            // last frame's shared targets: anything within reach ahead means it is time to fight
-            bool clear = FastMarch && Phase == SessionPhase.Running && !blocked && Countdown <= 0f && Swarm.FrontCount == 0;
-            _march = Mathf.MoveTowards(_march, clear ? Balance.FastMarch : 1f, dt * (clear ? 1.6f : 5f));
+            float target = 1f;
+            if (Phase == SessionPhase.Running && !blocked && Countdown <= 0f)
+            {
+                if (FastMarch) target = Balance.FastMarch;
+                if (Dash) target = Mathf.Max(target, Balance.DashSpeed);
+            }
+            _march = Mathf.MoveTowards(_march, target, dt * (target > _march ? 4f : 6f));
             Squad.Pace = _march;
-            if (clear && _march > 1.4f && Random.value < dt * 10f)
+            if (_march > 1.4f && Random.value < dt * (_march > 2f ? 20f : 10f))
             {
                 // dust kicked up behind the hurrying squad
                 _ctx.Fx.Burst(Squad.Position + new Vector3(Random.Range(-Squad.HalfWidth, Squad.HalfWidth), 0.1f, -Squad.HalfDepth),
@@ -332,13 +345,12 @@ namespace NumberRoad.Gameplay
             Boss?.Render(crowd);
         }
 
-        /// <summary>Ground rings and burning patches, bullets, enemy shots, the volley and blob shadows.</summary>
+        /// <summary>Ground rings and burning patches, bullets, enemy shots and blob shadows.</summary>
         public void RenderEffects()
         {
             Swarm.RenderGround();
             _bullets.Render();
             _shots.Render();
-            RenderVolley();
 
             _shadows.Clear();
             Squad.CollectShadows(_shadows);
@@ -458,7 +470,7 @@ namespace NumberRoad.Gameplay
         {
             if (!_ctx.Save.SeeEnemy(type)) return;
             EnemyType t = Enemies.Get(type);
-            Banner("NEW ENEMY: " + t.Name, t.Description.ToUpperInvariant(), new Color(1f, 0.55f, 0.45f), t.Model);
+            Banner(Loc.F("NEW ENEMY: {0}", Loc.T(t.Name)), Loc.Upper(Loc.T(t.Description)), new Color(1f, 0.55f, 0.45f), t.Model);
             if (t.Has(EnemyTrait.Ranged)) ShowHint(Core.Hint.Ranged, "ARCHERS SHOOT FROM AFAR - KEEP MOVING TO DODGE THE RED MARKS!");
             if (t.Has(EnemyTrait.Shield)) ShowHint(Core.Hint.Shield, "SHIELDS STOP STRAIGHT SHOTS - LOBS, SKY STRIKES AND SWEEPS GET AROUND THEM!");
         }
@@ -488,7 +500,7 @@ namespace NumberRoad.Gameplay
                 if (!h.Announced && Fighting && ev.warning && ev.z - Squad.Z < 48f)
                 {
                     h.Announced = true;
-                    Banner("HORDE INCOMING!", Fmt.Num(ev.HordeTotal) + " ENEMIES", UIFactory.Red);
+                    Banner("HORDE INCOMING!", Loc.F("{0} ENEMIES", Fmt.Num(ev.HordeTotal)), UIFactory.Red);
                     _ctx.Audio.Play(Sfx.Warning, 0.8f);
                     Haptics.Tap(30);
                 }
@@ -530,7 +542,7 @@ namespace NumberRoad.Gameplay
             WakeAll();
             BossType t = Boss.Type;
             // a strong squad may shoot the boss down before reaching the arena
-            if (Boss.IsAlive) Banner(t.Name, t.Description.ToUpperInvariant(), UIFactory.Red, t.Model);
+            if (Boss.IsAlive) Banner(Loc.T(t.Name), Loc.Upper(Loc.T(t.Description)), UIFactory.Red, t.Model);
             if (Def.escorts != null) foreach (HordeUnit u in Def.escorts) Introduce(u.type);
             _ctx.Camera.SetBossView(true);
             _ctx.Camera.Shake(0.35f);
@@ -589,7 +601,7 @@ namespace NumberRoad.Gameplay
                     {
                         int chainCoins = Mathf.RoundToInt(Balance.ChainCoins(_chain, Def.level) * Mods.Coins);
                         Stats.BonusCoins += chainCoins;
-                        _ctx.Labels.Popup("CHAIN x" + _chain + "  +" + chainCoins, Squad.Position + new Vector3(-1.2f, 2.9f, 0.5f), new Color(0.5f, 0.9f, 1f), 0.8f);
+                        _ctx.Labels.Popup(Loc.F("CHAIN x{0}  +{1}", _chain, chainCoins), Squad.Position + new Vector3(-1.2f, 2.9f, 0.5f), new Color(0.5f, 0.9f, 1f), 0.8f);
                     }
                 }
                 else
@@ -602,7 +614,7 @@ namespace NumberRoad.Gameplay
                     int bonus = Mathf.RoundToInt(Balance.PerfectCoins(Def.level) * Mods.Coins);
                     Stats.Perfect++;
                     Stats.BonusCoins += bonus;
-                    _ctx.Labels.Popup("PERFECT!  +" + bonus, Squad.Position + new Vector3(1.2f, 3.4f, 0.5f), UIFactory.Gold, 1.1f, 1.1f);
+                    _ctx.Labels.Popup(Loc.F("PERFECT!  +{0}", bonus), Squad.Position + new Vector3(1.2f, 3.4f, 0.5f), UIFactory.Gold, 1.1f, 1.1f);
                     _ctx.Audio.PlayPitched(Sfx.Coin, 0.7f, 1.3f);
                 }
             }
@@ -641,7 +653,7 @@ namespace NumberRoad.Gameplay
             if (!Squad.ClassUp()) return false;
             Stats.ClassUps++;
             UnitClass after = HighestTier(line);
-            string sub = before != null && after != null && before != after ? before.Name + "  >  " + after.Name : "EVERY SOLDIER PROMOTED";
+            string sub = before != null && after != null && before != after ? Loc.T(before.Name) + "  >  " + Loc.T(after.Name) : "EVERY SOLDIER PROMOTED";
             Banner("CLASS UP!", sub, GateView.ClassUpColor, after?.Model);
             _ctx.Fx.Sparks(Squad.Position + Vector3.up, new Color(1f, 0.85f, 1f), 40, 8f, 0.5f);
             _ctx.Audio.Play(Sfx.ClassUp);
@@ -662,7 +674,7 @@ namespace NumberRoad.Gameplay
                     {
                         int bonus = Mathf.RoundToInt((10 + Def.level * 2) * Mods.Coins);
                         Stats.BonusCoins += bonus;
-                        _ctx.Labels.Popup("MAX CLASS!  +" + bonus, popup, UIFactory.Gold, 1f);
+                        _ctx.Labels.Popup(Loc.F("MAX CLASS!  +{0}", bonus), popup, UIFactory.Gold, 1f);
                         _ctx.Audio.Play(Sfx.Coin);
                     }
                     return;
@@ -670,7 +682,7 @@ namespace NumberRoad.Gameplay
                 case GateKind.Recruit:
                 {
                     int change = Squad.Apply(effect, origin);
-                    _ctx.Labels.Popup("+" + Fmt.Num(change) + " " + Units.LineName(effect.line), popup, Units.LineColor(effect.line), 1.2f, 1.1f);
+                    _ctx.Labels.Popup("+" + Fmt.Num(change) + " " + Loc.T(Units.LineName(effect.line)), popup, Units.LineColor(effect.line), 1.2f, 1.1f);
                     _ctx.Audio.Play(Sfx.Recruit);
                     return;
                 }
@@ -849,7 +861,6 @@ namespace NumberRoad.Gameplay
             Combo++;
             _comboClock = ComboWindow;
             Stats.BestCombo = Mathf.Max(Stats.BestCombo, Combo);
-            if (Fighting) _skill = Mathf.Min(SkillNeeded, _skill + 1f);
 
             // elites and gold goblins keep their full value; plain kills are worth less while hordes are huge
             float baseCoins = (a.Elite ? Balance.EliteCoins : t.Has(EnemyTrait.Runaway) ? t.Coins : t.Coins * Balance.KillValue(Def.level)) * Mods.Coins;
@@ -865,7 +876,7 @@ namespace NumberRoad.Gameplay
             // milestones every 25 kills, then every 50 / 100 once the combo is huge
             if (Combo % (Combo < 100 ? 25 : Combo < 500 ? 50 : 100) == 0)
             {
-                _ctx.Labels.Popup("COMBO " + Combo + "!", Squad.Position + new Vector3(0f, 3.6f, 1f), new Color(1f, 0.85f, 0.3f), 0.9f + Mathf.Min(Combo, 200) / 400f);
+                _ctx.Labels.Popup(Loc.F("COMBO {0}!", Combo), Squad.Position + new Vector3(0f, 3.6f, 1f), new Color(1f, 0.85f, 0.3f), 0.9f + Mathf.Min(Combo, 200) / 400f);
                 _ctx.Audio.PlayPitched(Sfx.Combo, 0.6f, 1f + Mathf.Min(Combo, 250) / 250f);
             }
             _ctx.Audio.PlayPitched(Sfx.EnemyDie, t.IsBig ? 0.9f : 0.4f, 0.9f + Mathf.Min(Combo, 80) * 0.008f, 0.04f);
@@ -873,7 +884,7 @@ namespace NumberRoad.Gameplay
             if (t.Has(EnemyTrait.Runaway))
             {
                 Stats.GoldGoblins++;
-                _ctx.Labels.Popup("GOLD! +" + Fmt.Num(Mathf.RoundToInt(baseCoins * multiplier)), a.Pos + Vector3.up * 2.2f, UIFactory.Gold, 1.4f, 1.2f);
+                _ctx.Labels.Popup(Loc.F("GOLD! +{0}", Fmt.Num(Mathf.RoundToInt(baseCoins * multiplier))), a.Pos + Vector3.up * 2.2f, UIFactory.Gold, 1.4f, 1.2f);
                 _ctx.Fx.Burst(a.Pos + Vector3.up, GameContext.GoldColor, 30, 7f, 0.18f, 1.2f);
                 _ctx.Audio.PlayPitched(Sfx.Coin, 0.9f, 1.4f, 0f);
                 _ctx.Freeze(0.05f);
@@ -927,6 +938,45 @@ namespace NumberRoad.Gameplay
             _ctx.Labels.Popup("BURN!", Squad.Position + new Vector3(0f, 2f, 0.5f), new Color(1f, 0.5f, 0.1f), 0.8f);
             _ctx.Audio.Play(Sfx.SoldierDie, 0.45f, 0.1f, 0.05f);
             ShowHint(Core.Hint.Burning, "BURNING GROUND HURTS - STEER AROUND THE FLAMES!");
+        }
+
+        /// <summary>An enemy got past the squad and rams the war wagon.</summary>
+        public void OnBreach(ref Agent a)
+        {
+            EnemyType t = Enemies.Get(a.Type);
+            if (t.Contact <= 0) return;
+            float damage = Mathf.Max(1, t.Contact) * (a.Elite ? 2f : 1f) * EnemyPower * Mods.BaseArmor / Balance.BaseToughness(_ctx.Save.baseLevel);
+            DamageBase(damage / Balance.BaseHp(Def.level), a.Pos);
+        }
+
+        void DamageBase(float share, Vector3 from)
+        {
+            if (!Fighting || _base <= 0f) return;
+            _base = Mathf.Max(0f, _base - share);
+            Stats.BaseDamage += share;
+            _wagon.Hit(from);
+            _wagon.SetHealth(_base);
+            _baseLossShown += share;
+            if (_baseClock <= 0f)
+            {
+                _baseClock = 0.35f;
+                int percent = Mathf.Max(1, Mathf.RoundToInt(_baseLossShown * 100f));
+                _baseLossShown = 0f;
+                _ctx.Labels.Popup(Loc.F("BASE -{0}%", percent), _wagon.Position + new Vector3(0f, 3f, 0f), GateView.BadColor, 0.9f);
+                _ctx.Audio.Play(Sfx.Smash, 0.5f, 0.1f, 0.05f);
+                _ctx.Camera.Shake(0.12f);
+                Haptics.Tap(15);
+            }
+            ShowHint(Core.Hint.Base, "ENEMIES THAT SLIP PAST YOUR ARMY RAM THE WAR WAGON - IF IT FALLS, THE RUN IS OVER!");
+        }
+
+        void RepairBase(float share)
+        {
+            if (_base >= 1f || share <= 0f) return;
+            float before = _base;
+            _base = Mathf.Min(1f, _base + share);
+            _wagon.SetHealth(_base);
+            _ctx.Labels.Popup(Loc.F("BASE +{0}%", Mathf.RoundToInt((_base - before) * 100f)), _wagon.Position + new Vector3(0f, 3f, 0f), GateView.GoodColor, 0.9f);
         }
 
         // --- Boss callbacks -----------------------------------------------------------------
@@ -987,7 +1037,7 @@ namespace NumberRoad.Gameplay
                     {
                         int lost = Mathf.Max(2, RoundRandom(boss.Smash * 1.5f * EnemyPower * (1f - Squad.GuardChance * 0.5f)));
                         Stats.LostBoss += Squad.Lose(lost, Squad.Position);
-                        _ctx.Labels.Popup("SHOCKWAVE -" + Fmt.Num(lost), Squad.Position + new Vector3(0f, 2.5f, 0.5f), GateView.BadColor, 1.2f);
+                        _ctx.Labels.Popup(Loc.F("SHOCKWAVE -{0}", Fmt.Num(lost)), Squad.Position + new Vector3(0f, 2.5f, 0.5f), GateView.BadColor, 1.2f);
                     }
                     break;
                 }
@@ -1008,7 +1058,7 @@ namespace NumberRoad.Gameplay
 
         public void OnBossRage(BossUnit boss)
         {
-            Banner("RAGE!", boss.Type.Name + " IS FURIOUS", UIFactory.Red);
+            Banner("RAGE!", Loc.F("{0} IS FURIOUS", Loc.T(boss.Type.Name)), UIFactory.Red);
             _ctx.Audio.Play(Sfx.Warning);
             _ctx.Camera.Shake(0.4f);
         }
@@ -1024,65 +1074,7 @@ namespace NumberRoad.Gameplay
             Haptics.Tap(60, true);
         }
 
-        // --- Skill, combo, effects --------------------------------------------------------
-
-        /// <summary>VOLLEY: a rain of arrows over the road in front of the squad.</summary>
-        public bool UseSkill()
-        {
-            if (!SkillReady || _volleyClock >= 0f) return false;
-            _skill = 0f;
-            _volleyClock = 0f;
-            _volley.Clear();
-            int arrows = _ctx.LowQuality ? 70 : 140;
-            for (int i = 0; i < arrows; i++)
-            {
-                _volley.Add(new VolleyArrow
-                {
-                    Target = new Vector3(Random.Range(-3.8f, 3.8f), 0f, Squad.Z + Random.Range(VolleyNear, VolleyFar)),
-                    Delay = Random.Range(0f, 0.3f),
-                });
-            }
-            _ctx.Audio.Play(Sfx.Skill);
-            _ctx.Labels.Popup("VOLLEY!", Squad.Position + new Vector3(0f, 3f, 1f), UIFactory.Gold, 1.6f, 1f);
-            Haptics.Tap(30);
-            return true;
-        }
-
-        void TickVolley(float dt)
-        {
-            if (!_skillHinted && SkillReady)
-            {
-                _skillHinted = true;
-                ShowHint(Core.Hint.Skill, "VOLLEY IS READY - TAP THE BUTTON FOR A RAIN OF ARROWS!");
-            }
-            if (_volleyClock < 0f) return;
-            float before = _volleyClock;
-            _volleyClock += dt;
-            if (before < VolleyImpact && _volleyClock >= VolleyImpact)
-            {
-                float damage = Squad.Dps * Balance.SkillPower(_ctx.Save.skillLevel) * Mods.SkillPower;
-                Swarm.BoxDamage(Squad.Z + VolleyNear, Squad.Z + VolleyFar, damage);
-                if (Boss != null && Boss.IsAlive && Boss.Position.z - Squad.Z < VolleyFar + 2f) Boss.OnBulletHit(damage * 0.5f, Boss.Position + Vector3.up, false);
-                _ctx.Camera.Shake(0.45f);
-                _ctx.Audio.Play(Sfx.Explosion, 0.8f);
-            }
-            if (_volleyClock >= VolleyTime) _volleyClock = -1f;
-        }
-
-        void RenderVolley()
-        {
-            if (_volleyClock < 0f) return;
-            _batch.Begin(GameAssets.Bolt, GameAssets.Transparent);
-            Color color = Units.LineColor(Squad.Army.DominantLine);
-            foreach (VolleyArrow v in _volley)
-            {
-                float u = Mathf.Clamp01((_volleyClock - v.Delay) / VolleyImpact);
-                if (u <= 0f || _volleyClock - v.Delay > VolleyImpact + 0.08f) continue;
-                Vector3 p = v.Target + new Vector3(0f, 14f * (1f - u), -3f * (1f - u));
-                _batch.Add(Matrix4x4.TRS(p, Quaternion.LookRotation(new Vector3(0f, -1f, 0.2f)), new Vector3(0.18f, 0.18f, 1.4f)), color);
-            }
-            _batch.End();
-        }
+        // --- Combo, effects --------------------------------------------------------------
 
         void TickCombo(float dt)
         {
@@ -1090,6 +1082,7 @@ namespace NumberRoad.Gameplay
             _blockClock -= dt;
             _explosionClock -= dt;
             _burnClock -= dt;
+            _baseClock -= dt;
             if (Combo <= 0) return;
             _comboClock -= dt;
             if (_comboClock <= 0f) Combo = 0;
@@ -1099,7 +1092,7 @@ namespace NumberRoad.Gameplay
         {
             if (_recordShown || _recordToBeat < 30 || Squad.Peak <= _recordToBeat) return;
             _recordShown = true;
-            Banner("NEW RECORD!", "LARGEST ARMY: " + Fmt.Num(Squad.Peak), UIFactory.Gold);
+            Banner("NEW RECORD!", Loc.F("LARGEST ARMY: {0}", Fmt.Num(Squad.Peak)), UIFactory.Gold);
             _ctx.Audio.Play(Sfx.Banner);
         }
 
@@ -1167,9 +1160,17 @@ namespace NumberRoad.Gameplay
         {
             if (Fighting)
             {
-                if (Squad.Count <= 0)
+                if (Squad.Count <= 0 || _base <= 0f)
                 {
                     Phase = SessionPhase.Lost;
+                    BaseDestroyed = _base <= 0f;
+                    if (BaseDestroyed)
+                    {
+                        _wagon.Destroy();
+                        Banner("WAR WAGON DESTROYED", "THE ENEMY BROKE THROUGH", UIFactory.Red);
+                        _ctx.Camera.Shake(0.8f);
+                        _ctx.Audio.Play(Sfx.Explosion);
+                    }
                     _endClock = 1.6f;
                     BossHpLeft = _bossFight && Boss != null ? Mathf.Clamp01(Boss.Hp / Boss.MaxHp) : 0f;
                     _ctx.Audio.Play(Sfx.Lose);
@@ -1208,6 +1209,10 @@ namespace NumberRoad.Gameplay
             Phase = _bossFight ? SessionPhase.BossFight : SessionPhase.Running;
             _finishedRaised = false;
             Squad.Revive(Mathf.Max(5, Squad.Peak / 2));
+            // the wagon is patched up to at least half
+            _base = Mathf.Max(_base, 0.5f);
+            BaseDestroyed = false;
+            _wagon.Restore(_base);
             Swarm.Clear(Squad.Position, 14f);
             _shots.Clear();
             _ctx.Fx.Sparks(Squad.Position + Vector3.up, new Color(1f, 0.95f, 0.6f), 60, 12f, 0.6f);
@@ -1273,10 +1278,12 @@ namespace NumberRoad.Gameplay
             {
                 int lost = Mathf.Min(Squad.Count - 1, Mathf.Max(1, Mathf.RoundToInt(Squad.Count * Mods.WaveLoss)));
                 Stats.LostGates += Squad.Lose(lost, Squad.Position, false);
-                _ctx.Labels.Popup("OVERDRIVE -" + Fmt.Num(lost), Squad.Position + new Vector3(0f, 2.6f, 0.5f), GateView.BadColor, 0.9f);
+                _ctx.Labels.Popup(Loc.F("OVERDRIVE -{0}", Fmt.Num(lost)), Squad.Position + new Vector3(0f, 2.6f, 0.5f), GateView.BadColor, 0.9f);
             }
+            // the crew patches up the wagon between waves
+            RepairBase(Balance.WaveRepair);
             bool last = Wave >= Waves - 1;
-            Banner(last ? "FINAL WAVE" : "WAVE " + (Wave + 1) + " / " + Waves, last ? "THE BOSS WAITS AT THE END" : "HERE THEY COME!",
+            Banner(last ? "FINAL WAVE" : Loc.F("WAVE {0} / {1}", Wave + 1, Waves), last ? "THE BOSS WAITS AT THE END" : "HERE THEY COME!",
                 last ? UIFactory.Red : UIFactory.Gold);
         }
 
@@ -1313,7 +1320,9 @@ namespace NumberRoad.Gameplay
 
         bool IBuffTarget.ClassUp() => Promote();
 
-        void IBuffTarget.FillSkill() => _skill = SkillNeeded;
+        float IBuffTarget.BaseHealth => _base;
+
+        void IBuffTarget.RepairBase(float share) => RepairBase(share);
 
         // --- Helpers for the auto pilot / tests ---------------------------------------------
 
@@ -1351,6 +1360,31 @@ namespace NumberRoad.Gameplay
         }
 
         public bool ShotThreat(out float landX) => _shots.Threat(Squad.X, Squad.Z, out landX);
+
+        /// <summary>
+        /// Share of the war wagon that the lane-bound enemies just ahead would knock off if they slipped past the squad
+        /// where it stands, how many they are, and the x to stand at to block them (auto pilot).
+        /// </summary>
+        public float BreachThreat(out float blockX, out int enemies)
+        {
+            blockX = Squad.X;
+            enemies = 0;
+            float threat = 0f, sumX = 0f;
+            float max = Balance.BaseHp(Def.level) * Balance.BaseToughness(_ctx.Save.baseLevel) / (EnemyPower * Mods.BaseArmor);
+            for (int i = 0; i < Swarm.Count; i++)
+            {
+                ref Agent a = ref Swarm.Agents[i];
+                if (a.State == AgentState.Dead || a.State == AgentState.Idle || a.Fleeing || !a.LaneLocked) continue;
+                float dz = a.Pos.z - Squad.Z;
+                if (dz < 0f || dz > 30f || Mathf.Abs(a.Pos.x - Squad.X) < Squad.HalfWidth + 0.4f) continue;
+                float share = Mathf.Max(1, Enemies.Get(a.Type).Contact) / max;
+                threat += share;
+                sumX += a.Pos.x * share;
+                enemies++;
+            }
+            if (threat > 0f) blockX = sumX / threat;
+            return threat;
+        }
 
         public bool HazardAhead(out float hazardX) => Swarm.HazardAhead(Squad.X, Squad.Z, out hazardX);
     }

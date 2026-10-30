@@ -48,6 +48,8 @@ namespace NumberRoad.Gameplay
         public bool NewEndlessBest;
         /// <summary>Coins the cleared endless stages already paid (shown, not paid again).</summary>
         public int RunCoins;
+        /// <summary>Lost because enemies slipped past and wrecked the war wagon.</summary>
+        public bool BaseDestroyed;
     }
 
     /// <summary>
@@ -74,6 +76,9 @@ namespace NumberRoad.Gameplay
 
         /// <summary>Lets <see cref="AutoPilot"/> steer instead of the player (tests, F1 in the editor).</summary>
         public bool AutoPlay { get; set; }
+
+        /// <summary>Holds DASH from code (tests); the player holds the HUD button, Space or up.</summary>
+        public bool HoldDash { get; set; }
 
         /// <summary>Base game speed (tests run faster); hit-stop and slow motion scale it.</summary>
         public float TimeScale { get; set; } = 1f;
@@ -126,6 +131,7 @@ namespace NumberRoad.Gameplay
             GameAssets.Init();
             Save = SaveSystem.Load();
             ApplyDebugLevel();
+            Loc.Language = (Language)Save.language;
 
             int today = Daily.Today;
             Daily.RegisterLogin(Save, today);
@@ -182,7 +188,7 @@ namespace NumberRoad.Gameplay
             if (!int.TryParse(url.Substring(start, end - start), out int level) || level < 1) return;
             _debugSave = true;
             int upgrades = Mathf.FloorToInt(LevelGenerator.ReferenceUpgrades(level));
-            Save = new SaveData { level = level, bestLevel = level, coins = 5000, gems = 50, sound = Save.sound, music = Save.music };
+            Save = new SaveData { level = level, bestLevel = level, coins = 5000, gems = 50, sound = Save.sound, music = Save.music, language = Save.language };
             foreach (UpgradeKind k in (UpgradeKind[])Enum.GetValues(typeof(UpgradeKind))) Save.SetUpgrade(k, upgrades);
             Save.lastLoginRewardDay = Daily.Today;
             Debug.Log($"[NumberRoad] debug level {level} (temporary save)");
@@ -219,7 +225,6 @@ namespace NumberRoad.Gameplay
             if (Input.GetKeyDown(KeyCode.F1)) AutoPlay = !AutoPlay;
 #endif
             if (Input.GetKeyDown(KeyCode.Escape)) Back();
-            if (State == GameState.Playing && Input.GetKeyDown(KeyCode.Space)) Session?.UseSkill();
 
             switch (State)
             {
@@ -233,6 +238,8 @@ namespace NumberRoad.Gameplay
                         if (AutoPlay) ChooseBuff(AutoPilot.PickBuff(Session));
                         break;
                     }
+                    // DASH: the HUD button, Space or up held down
+                    Session.Dash = HoldDash || (!AutoPlay && (UI.DashHeld || Input.GetKey(KeyCode.Space) || Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.W)));
                     float steer = AutoPlay ? AutoPilot.SteerTowards(Session, dt) : _input.SteerDelta;
                     Session.Tick(dt, steer);
                     MeasurePerformance(unscaled);
@@ -254,6 +261,7 @@ namespace NumberRoad.Gameplay
                 CrowdRenderer crowd = Context.Crowd;
                 crowd.Eye = Context.Camera.transform.position;
                 crowd.LowQuality = Context.LowQuality;
+                Context.Camera.SetRush(State == GameState.Playing && Session.Dash && Session.Rushing);
                 crowd.Begin();
                 Session.RenderCrowd(crowd);
                 crowd.End();
@@ -331,7 +339,7 @@ namespace NumberRoad.Gameplay
         /// Builds the road and the squad. <paramref name="army"/>, <paramref name="weapon"/> and <paramref name="mods"/>
         /// carry an endless run on into its next stage; a normal level starts from the save.
         /// </summary>
-        void BuildSession(LevelDefinition def, Army army = null, WeaponStats? weapon = null, RunMods mods = null)
+        void BuildSession(LevelDefinition def, Army army = null, WeaponStats? weapon = null, RunMods mods = null, float baseHealth = 1f)
         {
             Time.timeScale = TimeScale;
             _freeze = _slow = 0f;
@@ -343,7 +351,7 @@ namespace NumberRoad.Gameplay
             Context.Camera.SetBackground(Context.World.Sky);
             Context.Weather.Set(Context.World.Biome.Weather);
             Session = new LevelSession(Context, def, army ?? new Army(Save.StartLine, Save.StartSquad), weapon ?? Save.StartWeapon, mods,
-                Endless != null ? Endless.EnemyPower : 1f, Endless != null ? Endless.Stage : 0);
+                Endless != null ? Endless.EnemyPower : 1f, Endless != null ? Endless.Stage : 0, baseHealth);
             Session.FastMarch = Save.fastMarch;
             Session.Finished += OnSessionFinished;
             Context.Camera.SetBossView(false);
@@ -427,7 +435,7 @@ namespace NumberRoad.Gameplay
             WeaponStats weapon = squad.Weapon;
             // the next road is sized for the army that arrives (and the buffs it carries)
             LevelDefinition def = LevelGenerator.Generate(Endless.Level, false, Endless.Salt, army, squad.Effective(1f));
-            BuildSession(def, army, weapon, cleared.Mods);
+            BuildSession(def, army, weapon, cleared.Mods, cleared.BaseHealth);
             State = GameState.Title;
             Play();
         }
@@ -524,6 +532,7 @@ namespace NumberRoad.Gameplay
                 BossName = s.Boss != null ? s.Boss.Type.Name : string.Empty,
                 Survivors = s.Squad.Count,
                 Peak = s.Squad.Peak,
+                BaseDestroyed = s.BaseDestroyed,
             };
             float multiplier = result.IncomeMultiplier * result.GoldRushMultiplier * result.DailyMultiplier * result.CouponMultiplier;
             result.TotalCoins = Mathf.RoundToInt(st.Coins * multiplier);
@@ -797,6 +806,22 @@ namespace NumberRoad.Gameplay
         }
 
         // --- Settings ---------------------------------------------------------------------------
+
+        /// <summary>Switches the UI language. Every screen is built again so no label stays in the old language.</summary>
+        public void SetLanguage(Language language)
+        {
+            if (State != GameState.Title || Loc.Language == language) return;
+            Save.language = (int)language;
+            Loc.Language = language;
+            Persist();
+            DisposeSession();
+            DestroyImmediate(UI.gameObject);
+            UI = CreateChild("UI").AddComponent<UIRoot>();
+            UI.Init(this, () => Context.Camera != null ? Context.Camera.Camera : null);
+            Context.Labels = UI.Labels;
+            ShowTitle();
+            UI.OpenSettings();
+        }
 
         public void SetSound(bool on)
         {

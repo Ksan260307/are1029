@@ -128,6 +128,12 @@ namespace NumberRoad.Core
 
         /// <summary>True when the attack creates no projectile (it lands the moment the soldier attacks).</summary>
         public bool Instant => Style == AttackStyle.Beam || Style == AttackStyle.Chain || Style == AttackStyle.Smite || Style == AttackStyle.Sweep;
+
+        /// <summary>True when a shield stops the attack (shots and beams that come straight at the enemy).</summary>
+        public bool Frontal => Style == AttackStyle.Straight || Style == AttackStyle.Seek || Style == AttackStyle.Spray || Style == AttackStyle.Beam;
+
+        /// <summary>True when the attack often passes under flyers (shots that fly on without curving).</summary>
+        public bool MissesFlyers => Style == AttackStyle.Straight || Style == AttackStyle.Spray;
     }
 
     public static class Units

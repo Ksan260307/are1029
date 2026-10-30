@@ -33,7 +33,9 @@ namespace NumberRoad.Core
         void Revive(int n);
         void LoseShare(float share);
         bool ClassUp();
-        void FillSkill();
+        /// <summary>The war wagon's health, 0..1.</summary>
+        float BaseHealth { get; }
+        void RepairBase(float share);
     }
 
     /// <summary>Everything the buffs picked so far change during this run.</summary>
@@ -55,8 +57,8 @@ namespace NumberRoad.Core
         public float Regen;
         public float Coins = 1f;
         public float ComboTime;
-        public float SkillCharge = 1f;
-        public float SkillPower = 1f;
+        /// <summary>Damage the war wagon takes (IRON PLATING lowers it).</summary>
+        public float BaseArmor = 1f;
         /// <summary>Extra damage per 10 combo (capped at +60%).</summary>
         public float ComboDamage;
 
@@ -142,7 +144,7 @@ namespace NumberRoad.Core
         public override string ToString() => Id;
     }
 
-    /// <summary>The 52 buffs offered between waves (three random cards, pick one).</summary>
+    /// <summary>The 53 buffs offered between waves (three random cards, pick one).</summary>
     public static class Buffs
     {
         static int Recruits(IBuffTarget t, float share) => Mathf.Max(5, Mathf.RoundToInt(t.Soldiers * share));
@@ -171,8 +173,6 @@ namespace NumberRoad.Core
             B("rapid", "RAPID FIRE", "Fire rate +30%.", BuffKind.Power, BuffRarity.Rare, 0, (m, t) => m.Rate *= 1.3f),
             B("drill", "SHIELD DRILL", "Block chance +10%.", BuffKind.Power, BuffRarity.Common, 4, (m, t) => m.Guard += 0.1f),
             B("combo", "COMBO MASTER", "The combo lasts 1 second longer.", BuffKind.Power, BuffRarity.Common, 3, (m, t) => m.ComboTime += 1f),
-            B("focus", "FOCUS", "VOLLEY charges 40% faster.", BuffKind.Power, BuffRarity.Common, 3, (m, t) => m.SkillCharge *= 1.4f),
-            B("storm", "STORM VOLLEY", "VOLLEY deals 60% more damage.", BuffKind.Power, BuffRarity.Common, 3, (m, t) => m.SkillPower *= 1.6f),
             B("wide", "WIDE BLAST", "Area attacks are 0.6 m wider.", BuffKind.Power, BuffRarity.Rare, 3, (m, t) => m.ExtraSplash += 0.6f),
             B("training", "FIELD TRAINING", "Damage +10% and fire rate +10%.", BuffKind.Power, BuffRarity.Common, 0, (m, t) =>
             {
@@ -248,6 +248,9 @@ namespace NumberRoad.Core
                 (m, t) => m.SecondWind = true),
             B("ward", "HOLY WARD", "The next losses up to 30% of your army are prevented.", BuffKind.Heal, BuffRarity.Common, 0,
                 (m, t) => m.Ward += Mathf.Max(3, Mathf.RoundToInt(t.Soldiers * 0.3f))),
+            B("repair", "FIELD REPAIRS", "Repairs 40% of the war wagon.", BuffKind.Heal, BuffRarity.Common, 0,
+                (m, t) => t.RepairBase(0.4f), (m, t) => t.BaseHealth < 0.9f),
+            B("plating", "IRON PLATING", "The war wagon takes 30% less damage.", BuffKind.Heal, BuffRarity.Rare, 2, (m, t) => m.BaseArmor *= 0.7f),
 
             // --- troops
             Troops("archers", UnitLine.Bow),
@@ -270,7 +273,6 @@ namespace NumberRoad.Core
             }),
             B("overflow", "OVERFLOW", "Multiply gates multiply by one more (x2 becomes x3).", BuffKind.Boost, BuffRarity.Epic, 1, (m, t) => m.MultiplyBonus++),
             B("slowtime", "SLOW TIME", "Enemies move 15% slower.", BuffKind.Boost, BuffRarity.Common, 2, (m, t) => m.EnemySpeed *= 0.85f),
-            B("charged", "FULL CHARGE", "VOLLEY is ready right now.", BuffKind.Boost, BuffRarity.Common, 0, (m, t) => t.FillSkill()),
             B("veteran", "VETERANS", "Damage +15% and block chance +5%.", BuffKind.Boost, BuffRarity.Common, 0, (m, t) =>
             {
                 m.Damage *= 1.15f;
@@ -336,9 +338,9 @@ namespace NumberRoad.Core
             {
                 if (!seen.Add(b)) continue;
                 int n = mods.CountOf(b);
-                parts.Add(n > 1 ? b.Name + " x" + n : b.Name);
+                parts.Add(n > 1 ? Loc.T(b.Name) + " x" + n : Loc.T(b.Name));
             }
-            return string.Join(", ", parts);
+            return string.Join(Loc.T(", "), parts);
         }
 
         public static string KindName(BuffKind kind)

@@ -13,6 +13,9 @@ namespace NumberRoad.UI
     {
         public LabelLayer Labels { get; private set; }
 
+        /// <summary>The HUD's DASH button is being held.</summary>
+        public bool DashHeld => _hud != null && _hud.Root.activeSelf && _hud.DashHeld;
+
         GameRoot _game;
         TitleView _title;
         HudView _hud;
@@ -111,6 +114,9 @@ namespace NumberRoad.UI
         /// <summary>Back button on the title screen: closes the open panel, if any.</summary>
         public void CloseTopPanel() => _panels.CloseTop();
 
+        /// <summary>Opens the settings panel (after the language changed and the screens were rebuilt).</summary>
+        public void OpenSettings() => _panels.ShowSettings();
+
         public void LateTick(float unscaledDt)
         {
             Labels.LateTick(Time.deltaTime);
@@ -148,7 +154,7 @@ namespace NumberRoad.UI
 
         internal static void Toggle(Button button, Text text, string name, bool on)
         {
-            text.text = name + (on ? "\nON" : "\nOFF");
+            text.text = Loc.F(on ? "{0}\nON" : "{0}\nOFF", Loc.T(name));
             UIFactory.SetButtonColor(button, on ? UIFactory.Blue : UIFactory.Gray);
         }
     }
@@ -190,7 +196,7 @@ namespace NumberRoad.UI
             panel.gameObject.AddComponent<PopIn>();
             RectTransform p = panel.rectTransform;
 
-            Text title = UIFactory.Text(p, "Title", "PAUSED", 92, UIFactory.Ink);
+            Text title = UIFactory.Text(p, "Title", Loc.T("PAUSED"), 92, UIFactory.Ink);
             UIFactory.Place(title.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -36f), new Vector2(700f, 120f));
 
             _stats = UIFactory.Text(p, "Stats", string.Empty, 38, UIFactory.Ink, TextAnchor.UpperCenter);
@@ -210,9 +216,9 @@ namespace NumberRoad.UI
             AddButton(p, "Restart", "RESTART", UIFactory.Gold, -750f, game.Restart);
             AddButton(p, "Home", "HOME", UIFactory.Gray, -890f, game.Home);
 
-            _sound = UIFactory.Button(p, "Sound", "SFX", UIFactory.Blue, 36, () => game.SetSound(!game.Save.sound), out _soundText);
+            _sound = UIFactory.Button(p, "Sound", Loc.T("SFX"), UIFactory.Blue, 36, () => game.SetSound(!game.Save.sound), out _soundText);
             UIFactory.Place((RectTransform)_sound.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-140f, -1060f), new Vector2(250f, 120f));
-            _music = UIFactory.Button(p, "Music", "BGM", UIFactory.Blue, 36, () => game.SetMusic(!game.Save.music), out _musicText);
+            _music = UIFactory.Button(p, "Music", Loc.T("BGM"), UIFactory.Blue, 36, () => game.SetMusic(!game.Save.music), out _musicText);
             UIFactory.Place((RectTransform)_music.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(140f, -1060f), new Vector2(250f, 120f));
         }
 
@@ -228,16 +234,16 @@ namespace NumberRoad.UI
             UIRoot.Toggle(_music, _musicText, "BGM", save.music);
             if (session == null) return;
             RunStats s = session.Stats;
+            string where = session.EndlessStage > 0
+                ? Loc.F("ENDLESS STAGE {0}   ENEMIES +{1}%", session.EndlessStage, Mathf.RoundToInt((session.EnemyPower - 1f) * 100f))
+                : Loc.F("LEVEL {0}", session.Def.level);
             _stats.text =
-                (session.EndlessStage > 0
-                    ? "ENDLESS STAGE " + session.EndlessStage + "   ENEMIES +" + Mathf.RoundToInt((session.EnemyPower - 1f) * 100f) + "%"
-                    : "LEVEL " + session.Def.level) +
-                "   WAVE " + Mathf.Min(session.Wave + 1, session.Waves) + "/" + session.Waves + "   " + Mathf.RoundToInt(session.Progress * 100f) + "%\n" +
-                "DEFEATED  " + Fmt.Num(s.Kills) + "\n" +
-                "BEST ARMY  " + Fmt.Num(session.Squad.Peak) + "     BEST COMBO  " + s.BestCombo + "\n" +
-                "COINS  " + Fmt.Num(session.Coins) + "     TIME  " + Fmt.Duration(session.Elapsed);
+                where + Loc.F("   WAVE {0}/{1}   {2}%", Mathf.Min(session.Wave + 1, session.Waves), session.Waves, Mathf.RoundToInt(session.Progress * 100f)) + "\n" +
+                Loc.F("DEFEATED  {0}     BASE  {1}%", Fmt.Num(s.Kills), Mathf.CeilToInt(session.BaseHealth * 100f)) + "\n" +
+                Loc.F("BEST ARMY  {0}     BEST COMBO  {1}", Fmt.Num(session.Squad.Peak), s.BestCombo) + "\n" +
+                Loc.F("COINS  {0}     TIME  {1}", Fmt.Num(session.Coins), Fmt.Duration(session.Elapsed));
             string taken = Buffs.Summary(session.Mods);
-            _buffs.text = taken.Length > 0 ? "POWER-UPS\n" + taken : "POWER-UPS\nPICK ONE AFTER EVERY WAVE";
+            _buffs.text = taken.Length > 0 ? Loc.T("POWER-UPS") + "\n" + taken : Loc.T("POWER-UPS\nPICK ONE AFTER EVERY WAVE");
         }
     }
 }

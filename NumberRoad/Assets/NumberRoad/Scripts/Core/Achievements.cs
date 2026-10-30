@@ -20,16 +20,21 @@ namespace NumberRoad.Core
     public sealed class Achievement
     {
         public readonly string Id;
+        /// <summary>English title (name and tier), e.g. "SLAYER II".</summary>
         public readonly string Title;
+        public readonly string Name;
+        public readonly string Tier;
         public readonly AchievementMetric Metric;
         public readonly long Target;
         public readonly int Gems;
         public readonly int Coins;
 
-        public Achievement(string id, string title, AchievementMetric metric, long target, int gems, int coins)
+        public Achievement(string id, string name, string tier, AchievementMetric metric, long target, int gems, int coins)
         {
             Id = id;
-            Title = title;
+            Name = name;
+            Tier = tier;
+            Title = name + " " + tier;
             Metric = metric;
             Target = target;
             Gems = gems;
@@ -67,7 +72,7 @@ namespace NumberRoad.Core
             {
                 for (int t = 0; t < 3; t++)
                 {
-                    list.Add(new Achievement($"{spec.metric}_{t}", $"{spec.name} {Tiers[t]}", spec.metric, spec.targets[t], GemRewards[t], CoinRewards[t]));
+                    list.Add(new Achievement($"{spec.metric}_{t}", spec.name, Tiers[t], spec.metric, spec.targets[t], GemRewards[t], CoinRewards[t]));
                 }
             }
             return list;
@@ -90,20 +95,23 @@ namespace NumberRoad.Core
             }
         }
 
+        /// <summary>The title in the current language.</summary>
+        public static string TitleOf(Achievement a) => Loc.T(a.Name) + " " + a.Tier;
+
         public static string Describe(Achievement a)
         {
             switch (a.Metric)
             {
-                case AchievementMetric.Kills: return $"Defeat {Fmt.Num(a.Target)} enemies";
-                case AchievementMetric.LevelsCleared: return $"Clear {a.Target} levels";
-                case AchievementMetric.MaxArmy: return $"Lead {Fmt.Num(a.Target)} soldiers at once";
-                case AchievementMetric.Bosses: return $"Defeat {a.Target} bosses";
-                case AchievementMetric.BestCombo: return $"Reach a {a.Target} kill combo";
-                case AchievementMetric.Gates: return $"Pass {Fmt.Num(a.Target)} gates";
-                case AchievementMetric.Perfect: return $"Pick the best gate {a.Target} times";
-                case AchievementMetric.ClassUps: return $"Class up {a.Target} times";
-                case AchievementMetric.GoldGoblins: return $"Catch {a.Target} gold goblins";
-                default: return $"Discover {a.Target} kinds of enemies";
+                case AchievementMetric.Kills: return Loc.F("Defeat {0} enemies", Fmt.Num(a.Target));
+                case AchievementMetric.LevelsCleared: return Loc.F("Clear {0} levels", a.Target);
+                case AchievementMetric.MaxArmy: return Loc.F("Lead {0} soldiers at once", Fmt.Num(a.Target));
+                case AchievementMetric.Bosses: return Loc.F("Defeat {0} bosses", a.Target);
+                case AchievementMetric.BestCombo: return Loc.F("Reach a {0} kill combo", a.Target);
+                case AchievementMetric.Gates: return Loc.F("Pass {0} gates", Fmt.Num(a.Target));
+                case AchievementMetric.Perfect: return Loc.F("Pick the best gate {0} times", a.Target);
+                case AchievementMetric.ClassUps: return Loc.F("Class up {0} times", a.Target);
+                case AchievementMetric.GoldGoblins: return Loc.F("Catch {0} gold goblins", a.Target);
+                default: return Loc.F("Discover {0} kinds of enemies", a.Target);
             }
         }
 

@@ -92,11 +92,11 @@ namespace NumberRoad.Core
                     case GateKind.Subtract: return "-" + Fmt.Num(value);
                     case GateKind.Multiply: return "×" + value;
                     case GateKind.Divide: return "÷" + value;
-                    case GateKind.FireRate: return "RATE+";
-                    case GateKind.Damage: return "POWER+";
-                    case GateKind.MultiShot: return "MULTI+";
-                    case GateKind.Recruit: return "+" + Fmt.Num(value) + " " + Units.LineName(line);
-                    case GateKind.ClassUp: return "CLASS UP";
+                    case GateKind.FireRate: return Loc.T("RATE+");
+                    case GateKind.Damage: return Loc.T("POWER+");
+                    case GateKind.MultiShot: return Loc.T("MULTI+");
+                    case GateKind.Recruit: return "+" + Fmt.Num(value) + " " + Loc.T(Units.LineName(line));
+                    case GateKind.ClassUp: return Loc.T("CLASS UP");
                     default: return "?";
                 }
             }
@@ -109,10 +109,10 @@ namespace NumberRoad.Core
             {
                 switch (kind)
                 {
-                    case GateKind.FireRate: return "FIRE RATE UP!";
-                    case GateKind.Damage: return "POWER UP!";
-                    case GateKind.MultiShot: return "MULTI SHOT!";
-                    case GateKind.ClassUp: return "CLASS UP!";
+                    case GateKind.FireRate: return Loc.T("FIRE RATE UP!");
+                    case GateKind.Damage: return Loc.T("POWER UP!");
+                    case GateKind.MultiShot: return Loc.T("MULTI SHOT!");
+                    case GateKind.ClassUp: return Loc.T("CLASS UP!");
                     default: return Label;
                 }
             }

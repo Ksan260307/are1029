@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using NumberRoad.Core;
 using NumberRoad.Presentation;
 using UnityEngine;
 using UnityEngine.UI;
@@ -157,7 +158,7 @@ namespace NumberRoad.UI
                 Release(_popups[0].Label);
                 _popups.RemoveAt(0);
             }
-            Label label = Create(LabelStyle.Popup, text);
+            Label label = Create(LabelStyle.Popup, Loc.T(text));
             label.SetColor(color);
             label.World = world;
             _popups.Add(new PopupState { Label = label, Origin = world, Duration = duration, BaseScale = scale });

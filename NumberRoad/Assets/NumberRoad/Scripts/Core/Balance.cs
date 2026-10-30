@@ -10,15 +10,18 @@ namespace NumberRoad.Core
         public const float SquadMaxX = 3.2f;
         public const float SoldierEdgeX = 3.7f;
         public const float MarchSpeed = 5f;
-        /// <summary>FAST MARCH: how much faster the squad walks while no enemy is near.</summary>
+        /// <summary>FAST MARCH: how much faster the squad walks the whole way.</summary>
         public const float FastMarch = 1.8f;
-        public const float SpawnAhead = 64f;
+        /// <summary>DASH (held): how much faster the squad charges while the button is down.</summary>
+        public const float DashSpeed = 2.5f;
+        /// <summary>Gates, strips and crates are placed this far ahead (the low camera sees a long way).</summary>
+        public const float SpawnAhead = 100f;
         public const float DespawnBehind = 14f;
         /// <summary>Hordes start their charge this far ahead, just inside the squad's reach, so the whole crowd pours in under fire.</summary>
         public const float EnemyWakeDistance = 32f;
         public const float BossArenaDistance = 24f;
         /// <summary>Horde rows become live enemies only within this distance ahead; further back they are just a count.</summary>
-        public const float SpawnReach = 86f;
+        public const float SpawnReach = 140f;
         /// <summary>Walking enemies further ahead than this are updated every other frame (too far to touch anything).</summary>
         public const float FarUpdateDistance = 34f;
 
@@ -57,7 +60,12 @@ namespace NumberRoad.Core
         /// and a half hits, so a horde lasts long enough to charge in, while strong hits - crits, heavy classes,
         /// buffs - carry on through several (see <see cref="Combat.CarryOver"/>).
         /// </summary>
-        public const float SwarmToughness = 1.6f;
+        public const float SwarmToughness = 1.1f;
+        /// <summary>
+        /// Share of the squad's shots that the level generator counts on landing well: some fly past, hit a wounded
+        /// enemy or go into a target that is already falling.
+        /// </summary>
+        public const float FireEfficiency = 0.8f;
 
         /// <summary>
         /// Soldiers one enemy knocks out when it reaches a big army: armies grow into the hundreds of thousands
@@ -73,7 +81,7 @@ namespace NumberRoad.Core
         public const int EliteCoins = 10;
         public const float EliteGemChance = 0.25f;
 
-        // --- Combo / skill -----------------------------------------------------
+        // --- Combo ------------------------------------------------------------
         public const float ComboWindow = 1.5f;
 
         /// <summary>Coin multiplier from the kill combo: x2 at a 300 combo (hordes are hundreds strong).</summary>
@@ -87,12 +95,21 @@ namespace NumberRoad.Core
         public static float KillValue(int level) => Mathf.Min(1f, 0.07f * Mathf.Pow(1.035f, Mathf.Max(1, level) - 1));
 
         /// <summary>Seconds the expected army needs to bring the boss down: long enough for him to reach the front line.</summary>
-        public static float BossSeconds(int level) => 9f + Mathf.Min(Mathf.Max(1, level), 25) * 0.3f;
+        public static float BossSeconds(int level) => 7.5f + Mathf.Min(Mathf.Max(1, level), 25) * 0.25f;
 
-        public static int SkillCharge(int level, int skillUpgrade) => Mathf.RoundToInt((40 + 6 * Mathf.Max(1, level)) * Mathf.Pow(0.93f, skillUpgrade));
+        // --- War wagon ----------------------------------------------------------
 
-        /// <summary>Seconds of full squad damage the VOLLEY deals to everything in front.</summary>
-        public static float SkillPower(int skillUpgrade) => 4f + 0.8f * skillUpgrade;
+        /// <summary>
+        /// How many plain enemies may slip past the squad before the war wagon falls (big ones count more): about
+        /// three whole lanes of enemies, so letting one through hurts but does not end the run.
+        /// </summary>
+        public static float BaseHp(int level) => 40f + 0.8f * HordeSize(level);
+
+        /// <summary>BASE upgrade: the wagon shrugs off this much more.</summary>
+        public static float BaseToughness(int upgradeLevel) => 1f + 0.12f * Mathf.Max(0, upgradeLevel);
+
+        /// <summary>Share of the wagon the crew patches up after every cleared wave.</summary>
+        public const float WaveRepair = 0.1f;
 
         // --- Meta upgrades (bought with coins on the title screen) -------------
         /// <summary>Soldiers at the start of a run: three, so a missed strip early on is not an instant loss.</summary>

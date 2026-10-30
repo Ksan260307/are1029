@@ -5,15 +5,19 @@ namespace NumberRoad.Core
 {
     /// <summary>
     /// Builds a level from its number. Deterministic (same number, same road) and self-balancing:
-    /// a <see cref="PowerModel"/> follows the best choices through the level, horde HP is set so its
+    /// a <see cref="PowerModel"/> follows the best plain gate through every row, horde HP is set so its
     /// bullets drop basic enemies in one hit, and horde sizes grow exponentially but are capped so the
-    /// reference player loses at most a difficulty-dependent share of its squad to any one wave.
+    /// reference player loses at most a difficulty-dependent share of its squad to any one wave. Crates,
+    /// jackpots, locked prizes and roulettes are bonuses the reference player does not count on, so
+    /// missing one never leaves a level out of reach.
     /// </summary>
     public static class LevelGenerator
     {
         public const float FirstEventZ = 18f;
         public const float StripPitch = 1.7f;
         public const float LaneX = 2.2f;
+        /// <summary>How far up a shoot-gate the reference player is assumed to pump it (lining up for the whole run-in is hard).</summary>
+        const float ShootGateShare = 0.6f;
 
         enum Section
         {
@@ -249,7 +253,6 @@ namespace NumberRoad.Core
             var specs = new GateSpec[options.Count];
             for (int i = 0; i < specs.Length; i++) specs[i] = new GateSpec { effect = options[i] };
             int best = c.Power.BestIndex(options);
-            GateEffect taken = options[best];
 
             if (!countOnly)
             {
@@ -268,25 +271,27 @@ namespace NumberRoad.Core
                         : (c.Rng.Chance(0.5f) ? GateEffect.Divide(2) : GateEffect.Subtract(Balance.Nice(c.Power.Count * 0.5f + 2)));
                 }
 
+                // a golden x5 or a bigger prize that is locked until shot open takes the place of another gate,
+                // so the plain best stays on the road for anyone who misses it
                 if (c.Level >= 6 && c.Power.Count < 3000 && c.Rng.Chance(0.06f))
                 {
-                    int g = PickOther(c.Rng, specs.Length, -1);
-                    if (specs[g].roulette == null)
+                    int g = PickOther(c.Rng, specs.Length, best);
+                    if (g >= 0 && specs[g].roulette == null)
                     {
                         specs[g].effect = GateEffect.Multiply(5);
                         specs[g].jackpot = true;
                         specs[g].mystery = false;
-                        taken = specs[g].effect;
-                        best = g;
                     }
                 }
-                else if (c.Level >= 9 && c.Rng.Chance(0.14f) && specs[best].roulette == null)
+                else if (c.Level >= 9 && c.Rng.Chance(0.14f))
                 {
-                    // the best gate becomes an even better prize, but it is locked until shot open
-                    specs[best].effect = c.Power.Count < 100 ? GateEffect.Multiply(3) : GateEffect.Add(Balance.Nice(c.Power.Count * 1.6f));
-                    specs[best].lockHp = Mathf.Max(10f, Mathf.Round(c.Power.Dps * 1.2f * c.Difficulty));
-                    specs[best].mystery = false;
-                    taken = specs[best].effect;
+                    int g = PickOther(c.Rng, specs.Length, best);
+                    if (g >= 0 && specs[g].roulette == null)
+                    {
+                        specs[g].effect = c.Power.Count < 100 ? GateEffect.Multiply(3) : GateEffect.Add(Balance.Nice(c.Power.Count * 1.6f));
+                        specs[g].lockHp = Mathf.Max(10f, Mathf.Round(c.Power.Dps * 1.2f * c.Difficulty));
+                        specs[g].mystery = false;
+                    }
                 }
             }
 
@@ -300,7 +305,7 @@ namespace NumberRoad.Core
                 gates = specs,
                 slide = !countOnly && c.Level >= 8 && c.Rng.Chance(0.25f) ? c.Rng.Range(1.2f, 2f) : 0f,
             });
-            c.Power.Apply(taken);
+            c.Power.Apply(options[best]);
             return z + 18f;
         }
 
@@ -437,7 +442,8 @@ namespace NumberRoad.Core
                 int max = Balance.Nice(Mathf.Max(5f, c.Power.Count * c.Rng.Range(0.4f, 1.2f)));
                 int step = Mathf.Max(1, Mathf.CeilToInt((max - start) / Mathf.Max(1f, hits)));
                 specs[i] = new GateSpec { effect = GateEffect.Add(start), shootable = true, maxValue = max, step = step };
-                bestGain = Mathf.Max(bestGain, Mathf.Min(max, start + hits * step));
+                // the reference player counts on pumping the gate only part of the way up
+                bestGain = Mathf.Max(bestGain, Mathf.Lerp(start, Mathf.Min(max, start + hits * step), ShootGateShare));
             }
             c.Def.events.Add(new SpawnEvent { kind = SpawnKind.GateRow, z = z + 4f, width = Balance.RoadHalfWidth * 2f, gates = specs });
             if (bestGain >= 0f) c.Power.Army.AddMixed(Mathf.RoundToInt(bestGain), UnitLine.Bow);
@@ -498,8 +504,8 @@ namespace NumberRoad.Core
             else if (roll < 0.85f) reward = GateEffect.Damage();
             else reward = GateEffect.Add(Balance.Nice(Mathf.Max(5f, c.Power.Count * 0.5f)));
 
+            // a bonus: the reference player does not count on breaking it
             c.Def.events.Add(new SpawnEvent { kind = SpawnKind.Crate, z = z + 6f, x = x, effect = reward, hp = hp });
-            c.Power.Apply(reward);
             return z + 18f;
         }
 
@@ -595,13 +601,15 @@ namespace NumberRoad.Core
 
             bool anyBig = false;
             float hits = 0f, speed = 0f, contact = 0f;
+            float frontal = c.Power.Army.DamageShare(unit => unit.Frontal);
+            float straight = c.Power.Army.DamageShare(unit => unit.MissesFlyers);
             foreach (HordeUnit u in units)
             {
                 EnemyType t = Enemies.Get(u.type);
                 anyBig |= t.IsBig;
-                // shots that kill carry on into the next enemy, so weak swarms cost less than one shot each
-                float enemyHp = hp * t.Hp / t.Multiplier(Element.Physical);
-                hits += u.count / Combat.KillsPerHit(c.Power.HitDamage, enemyHp);
+                // shots that kill carry on into the next enemy, so weak swarms cost less than one shot each;
+                // shields, skeletons, slimes and flyers cost more
+                hits += u.count * Combat.ShotsToKill(t, hp, c.Power.HitDamage, c.Power.Army.CrowdFactor, frontal, straight);
                 speed += u.count * t.Speed;
                 contact += u.count * Mathf.Max(1, t.Contact);
             }
@@ -615,21 +623,27 @@ namespace NumberRoad.Core
             int weight = Balance.ContactWeight(c.Power.Count);
             if (!laneLocked)
             {
-                // the squad opens fire a little before the crowd starts its charge
-                float engage = 0.4f + (Balance.EnemyWakeDistance + depth) / (Balance.MarchSpeed + speed);
-                float kills = c.Power.BulletsPerSecond * engage * c.Power.Army.CrowdFactor / hits;
+                // the squad opens fire once the crowd is in reach. A crowd that comes on faster than the squad cuts
+                // it down (held: the share of the oncoming crowd the squad drops as it arrives) reaches the squad,
+                // and from then on whatever the squad does not drop at once gets through
+                float closing = Balance.MarchSpeed + speed;
+                float rate = c.Power.BulletsPerSecond * Balance.FireEfficiency / hits;
+                float held = rate * spacing / (columns * closing);
+                float reach = Mathf.Clamp(c.Power.Army.Reach, 8f, Balance.EnemyWakeDistance);
+                float kills = held >= 1f ? float.MaxValue : rate * reach / (closing * (1f - held));
+                float through = Mathf.Max(0f, 1f - held);
                 float perEnemy = Mathf.Max(0.05f, contact * weight * (1f - c.Power.Army.GuardChance(0f)));
                 float maxLoss = c.Power.Count * Mathf.Lerp(0.2f, 0.5f, (c.Difficulty - 0.6f) / 0.4f);
                 float maxLeak = maxLoss / perEnemy;
-                if (size - kills > maxLeak)
+                if ((size - kills) * through > maxLeak)
                 {
-                    float scale = Mathf.Max(6f, kills + maxLeak) / size;
+                    float scale = Mathf.Max(6f, kills + maxLeak / through) / size;
                     for (int i = 0; i < units.Length; i++) units[i].count = Mathf.Max(1, Mathf.RoundToInt(units[i].count * scale));
                     size = 0;
                     foreach (HordeUnit u in units) size += u.count;
                     depth = Mathf.Ceil(size / (float)columns) * spacing;
                 }
-                float leak = Mathf.Max(0f, size - kills);
+                float leak = Mathf.Max(0f, size - kills) * through;
                 c.Power.Lose(leak * perEnemy);
             }
 

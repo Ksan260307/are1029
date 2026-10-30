@@ -13,7 +13,7 @@ namespace NumberRoad.Presentation
     {
         public static readonly Color SkyColor = new Color(0.56f, 0.82f, 1f);
         const float SegmentLength = 10f;
-        const int SegmentCount = 12;
+        const int SegmentCount = 18;
         const float BehindDistance = 25f;
         const float WaterLevel = -1.6f;
         const float WaterCell = 2f;
@@ -61,7 +61,8 @@ namespace NumberRoad.Presentation
             Shader.SetGlobalColor("_NR_SkyAmbient", biome.SkyAmbient);
             Shader.SetGlobalColor("_NR_GroundAmbient", biome.GroundAmbient);
             Shader.SetGlobalColor("_NR_FogColor", biome.Sky);
-            const float fogStart = 40f, fogEnd = 100f;
+            // far enough for the low camera to see the hordes massing, close enough to hide where the road ends
+            const float fogStart = 60f, fogEnd = 150f;
             Shader.SetGlobalVector("_NR_FogParams", new Vector4(fogStart, 1f / (fogEnd - fogStart), 0f, 0f));
             Material water = GameAssets.Water;
             water.SetColor("_Deep", biome.WaterDeep);
@@ -108,7 +109,7 @@ namespace NumberRoad.Presentation
             }
 
             float waterZ = Mathf.Round(focusZ / WaterCell) * WaterCell;
-            _water.localPosition = new Vector3(0f, WaterLevel, waterZ + 40f);
+            _water.localPosition = new Vector3(0f, WaterLevel, waterZ + 60f);
         }
 
         Segment CreateSegment(int i)
@@ -188,7 +189,7 @@ namespace NumberRoad.Presentation
 
         GameObject CreateWater()
         {
-            const int cellsX = 36, cellsZ = 70;
+            const int cellsX = 36, cellsZ = 100;
             float width = cellsX * WaterCell, length = cellsZ * WaterCell;
             var vertices = new Vector3[(cellsX + 1) * (cellsZ + 1)];
             for (int z = 0; z <= cellsZ; z++)

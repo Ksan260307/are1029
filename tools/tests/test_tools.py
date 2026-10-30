@@ -15,6 +15,11 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 
+try:
+    from fontTools.ttLib import TTFont
+except ImportError:  # CI runs without fontTools: the font check runs locally
+    TTFont = None
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.abspath(os.path.join(HERE, ".."))
 ROOT = os.path.abspath(os.path.join(TOOLS, ".."))
@@ -243,6 +248,26 @@ class ScriptTests(unittest.TestCase):
         for pattern in ("/WebGLBuild/", "/build-tmp/"):
             self.assertIn(pattern, ignore)
         self.assertNotIn("/docs/", ignore, "docs/ はビルド済みの公開用なのでコミットする")
+
+
+
+class FontTests(unittest.TestCase):
+    """The Japanese UI needs its own font (WebGL cannot use the phone's): it must hold every character the text uses."""
+
+    FONT = os.path.join(PROJECT, "Assets", "NumberRoad", "Resources", "Fonts", "UIFont.ttf")
+
+    def test_font_and_licence_are_committed(self):
+        self.assertTrue(os.path.isfile(self.FONT), "run python tools/build_font.py")
+        self.assertTrue(os.path.isfile(os.path.join(os.path.dirname(self.FONT), "UIFont-LICENSE.txt")))
+        self.assertLess(os.path.getsize(self.FONT), 1_000_000, "the font should only hold the characters the game uses")
+
+    @unittest.skipIf(TTFont is None, "fontTools is not installed")
+    def test_font_covers_every_character_of_the_text(self):
+        sys.path.insert(0, TOOLS)
+        import build_font
+        cmap = TTFont(self.FONT).getBestCmap()
+        missing = [c for c in build_font.characters() if ord(c) not in cmap]
+        self.assertEqual(missing, [], "new characters in the text: run python tools/build_font.py")
 
 
 if __name__ == "__main__":

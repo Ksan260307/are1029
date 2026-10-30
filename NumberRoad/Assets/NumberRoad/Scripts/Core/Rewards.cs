@@ -42,7 +42,7 @@ namespace NumberRoad.Core
                 save.lastLoginRewardDay = today;
                 Daily.Grant(save, prize, freeUpgrade());
                 summary.Login = true;
-                summary.Lines.Add("DAILY BONUS: " + prize.Label);
+                summary.Lines.Add(Loc.F("DAILY BONUS: {0}", prize.Label));
             }
             if (Daily.LuckyReady(save, today))
             {
@@ -51,13 +51,13 @@ namespace NumberRoad.Core
                 save.lastLuckyDay = today;
                 Daily.Grant(save, prize, freeUpgrade());
                 summary.Lucky = true;
-                summary.Lines.Add("LUCKY DRAW: " + prize.Label);
+                summary.Lines.Add(Loc.F("LUCKY DRAW: {0}", prize.Label));
             }
             foreach (Achievement a in Achievements.All)
             {
                 if (Achievements.Claim(save, a)) summary.Awards++;
             }
-            if (summary.Awards > 0) summary.Lines.Add(summary.Awards == 1 ? "1 AWARD" : summary.Awards + " AWARDS");
+            if (summary.Awards > 0) summary.Lines.Add(Loc.F(summary.Awards == 1 ? "{0} AWARD" : "{0} AWARDS", summary.Awards));
             summary.Coins = save.coins - coins;
             summary.Gems = save.gems - gems;
             return summary;

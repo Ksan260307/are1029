@@ -28,10 +28,10 @@ namespace NumberRoad.Core
             {
                 switch (Kind)
                 {
-                    case PrizeKind.Gems: return Amount + " GEMS";
-                    case PrizeKind.FreeUpgrade: return "FREE UPGRADE";
-                    case PrizeKind.DoubleCoins: return "x2 COINS NEXT RUN";
-                    default: return Fmt.Coins(Amount) + " COINS";
+                    case PrizeKind.Gems: return Loc.F("{0} GEMS", Amount);
+                    case PrizeKind.FreeUpgrade: return Loc.T("FREE UPGRADE");
+                    case PrizeKind.DoubleCoins: return Loc.T("x2 COINS NEXT RUN");
+                    default: return Loc.F("{0} COINS", Fmt.Coins(Amount));
                 }
             }
         }

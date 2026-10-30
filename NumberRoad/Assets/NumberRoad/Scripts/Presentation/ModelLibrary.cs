@@ -76,6 +76,9 @@ namespace NumberRoad.Presentation
                 case "wall":
                     Box(root, name, new Vector3(0, -0.6f, 0), new Vector3(0.5f, 2.4f, 10f), new Color(0.8f, 0.76f, 0.7f));
                     break;
+                case "war_wagon":
+                    Box(root, name, new Vector3(0, 1.1f, 0), new Vector3(2.1f, 2.2f, 2.7f), new Color(0.69f, 0.48f, 0.27f));
+                    break;
                 case "castle_gate":
                     Box(root, name, new Vector3(0, 1.4f, 0), new Vector3(10f, 6.4f, 2.5f), new Color(0.55f, 0.5f, 0.47f));
                     break;

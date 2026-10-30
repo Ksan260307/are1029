@@ -25,6 +25,8 @@ namespace NumberRoad.Presentation
         public static Mesh Orb { get; private set; }
 
         public static Font Font { get; private set; }
+        /// <summary>True when the bundled font (Resources/Fonts/UIFont, already bold) is used.</summary>
+        public static bool FontIsBold { get; private set; }
         public static Sprite RoundedSprite { get; private set; }
         public static Sprite CircleSprite { get; private set; }
         public static Sprite StarSprite { get; private set; }
@@ -55,6 +57,7 @@ namespace NumberRoad.Presentation
             Orb = CreateOrb();
 
             Font = Resources.Load<Font>("Fonts/UIFont");
+            FontIsBold = Font != null;
             if (Font == null) Font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
             RoundedSprite = CreateRoundedSprite(64, 24);

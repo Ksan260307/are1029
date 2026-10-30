@@ -256,7 +256,7 @@ namespace NumberRoad.Gameplay
             {
                 Mods.SecondWind = false;
                 int back = Recover(Mathf.Max(1, Fallen / 2));
-                _ctx.Labels.Popup("SECOND WIND +" + Fmt.Num(back), Position + new Vector3(0f, 2.8f, 0.5f), new Color(1f, 0.95f, 0.55f), 1.3f, 1.2f);
+                _ctx.Labels.Popup(Loc.F("SECOND WIND +{0}", Fmt.Num(back)), Position + new Vector3(0f, 2.8f, 0.5f), new Color(1f, 0.95f, 0.55f), 1.3f, 1.2f);
                 _ctx.Audio.Play(Sfx.Revive);
             }
             return removed;

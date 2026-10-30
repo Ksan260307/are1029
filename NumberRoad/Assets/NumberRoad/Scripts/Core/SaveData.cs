@@ -12,7 +12,8 @@ namespace NumberRoad.Core
         Income,
         Crit,
         Armor,
-        Skill,
+        /// <summary>The war wagon's toughness (took the place of the old VOLLEY upgrade).</summary>
+        Base,
         Recruit,
     }
 
@@ -22,12 +23,13 @@ namespace NumberRoad.Core
         Mystery = 1 << 1,
         Lock = 1 << 2,
         Ranged = 1 << 3,
-        Skill = 1 << 4,
         ClassUp = 1 << 5,
         Recruit = 1 << 6,
         Shootable = 1 << 7,
         Burning = 1 << 8,
         Shield = 1 << 9,
+        Base = 1 << 10,
+        Dash = 1 << 11,
     }
 
     public enum Quality
@@ -55,6 +57,9 @@ namespace NumberRoad.Core
         public int incomeLevel;
         public int critLevel;
         public int armorLevel;
+        /// <summary>BASE upgrade (the war wagon).</summary>
+        public int baseLevel;
+        /// <summary>Levels of the old VOLLEY upgrade; moved into <see cref="baseLevel"/> when a save is loaded.</summary>
         public int skillLevel;
         public int recruitLevel;
 
@@ -69,6 +74,8 @@ namespace NumberRoad.Core
         public bool fastMarch;
         /// <summary>Most bosses beaten in one endless run.</summary>
         public int endlessBest;
+        /// <summary>UI language (see <see cref="Language"/>; Japanese unless switched in the settings).</summary>
+        public int language;
 
         /// <summary>Best stars per level (index = level - 1).</summary>
         public List<int> stars = new List<int>();
@@ -117,7 +124,7 @@ namespace NumberRoad.Core
                 case UpgradeKind.Income: return incomeLevel;
                 case UpgradeKind.Crit: return critLevel;
                 case UpgradeKind.Armor: return armorLevel;
-                case UpgradeKind.Skill: return skillLevel;
+                case UpgradeKind.Base: return baseLevel;
                 default: return recruitLevel;
             }
         }
@@ -133,7 +140,7 @@ namespace NumberRoad.Core
                 case UpgradeKind.Income: incomeLevel = value; break;
                 case UpgradeKind.Crit: critLevel = value; break;
                 case UpgradeKind.Armor: armorLevel = value; break;
-                case UpgradeKind.Skill: skillLevel = value; break;
+                case UpgradeKind.Base: baseLevel = value; break;
                 default: recruitLevel = value; break;
             }
         }
@@ -265,6 +272,7 @@ namespace NumberRoad.Core
                 quality = quality,
                 gameSpeed = gameSpeed,
                 fastMarch = fastMarch,
+                language = language,
                 loginDay = loginDay,
                 loginStreak = loginStreak,
                 lastLoginRewardDay = lastLoginRewardDay,
@@ -286,6 +294,13 @@ namespace NumberRoad.Core
             startLine = Mathf.Clamp(startLine, 0, Units.Lines - 1);
             quality = Mathf.Clamp(quality, 0, 2);
             gameSpeed = Mathf.Clamp(gameSpeed, 1, 2);
+            language = Mathf.Clamp(language, 0, Enum.GetValues(typeof(Language)).Length - 1);
+            // VOLLEY is gone: what was spent on it carries over to the war wagon
+            if (skillLevel > 0)
+            {
+                baseLevel += skillLevel;
+                skillLevel = 0;
+            }
             endlessBest = Mathf.Max(0, endlessBest);
             stars = stars ?? new List<int>();
             enemyKills = enemyKills ?? new List<int>();

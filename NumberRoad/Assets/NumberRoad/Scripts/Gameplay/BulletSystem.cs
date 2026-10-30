@@ -73,7 +73,6 @@ namespace NumberRoad.Gameplay
         const int FlashCapacity = 160;
         const float Radius = 0.12f;
         const float MaxAgentRadius = 1.3f;
-        const float FlyerMiss = 0.55f;
 
         readonly Bullet[] _bullets = new Bullet[Capacity];
         readonly Flash[] _flashes = new Flash[FlashCapacity];
@@ -268,7 +267,7 @@ namespace NumberRoad.Gameplay
                 int uid = a.Uid;
                 bool flying = Enemies.Get(a.Type).Has(EnemyTrait.Flying);
                 // straight shots often pass under flyers; seeking arrows never do
-                if (flying && b.Style != AttackStyle.Seek && Hash(b.Seed, uid) < FlyerMiss)
+                if (flying && b.Style != AttackStyle.Seek && Hash(b.Seed, uid) < Combat.FlyerMiss)
                 {
                     b.LastUid = uid;
                     b.Position = to;

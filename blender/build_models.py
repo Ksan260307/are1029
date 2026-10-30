@@ -522,6 +522,57 @@ def build_castle_gate(ctx):
     c.build(ctx)
 
 
+def build_war_wagon(ctx):
+    """The squad's mobile base: a fortified wagon. Faces -Y like the soldiers. The roof, the banner and each wheel
+    are separate parts so the game can spin the wheels and knock the banner and roof off as it takes damage."""
+    b = ctx.part("Body")
+    wood, dark = PAL["wood"], PAL["wood_dark"]
+    b.box((0, 0, 0.82), (2.1, 2.7, 0.3), dark)
+    for sx in (-1, 1):
+        b.box((1.0 * sx, 0, 1.18), (0.12, 2.6, 0.5), wood)
+        b.box((1.0 * sx, 0, 1.44), (0.16, 2.66, 0.08), PAL["steel_dark"])
+    b.box((0, 1.28, 1.18), (2.0, 0.12, 0.5), wood)
+    # armoured front with a battering ram
+    b.box((0, -1.36, 1.15), (2.15, 0.16, 0.66), PAL["steel_dark"])
+    b.box((0, -1.45, 1.15), (1.6, 0.06, 0.12), PAL["gold"])
+    b.cyl((0, -1.75, 0.98), 0.14, 0.7, dark, seg=8, rot=(math.pi / 2, 0, 0))
+    b.cyl((0, -2.13, 0.98), 0.2, 0.12, PAL["steel"], seg=8, rot=(math.pi / 2, 0, 0))
+    for sy in (-0.85, 0.85):
+        b.cyl((0, sy, 0.55), 0.08, 2.3, PAL["steel_dark"], seg=6, rot=(0, math.pi / 2, 0))
+    # the little fort on top
+    b.box((0, 0.15, 1.75), (1.5, 1.7, 1.0), PAL["stone"])
+    b.box((0, 0.15, 2.18), (1.56, 1.76, 0.14), PAL["blue"])
+    b.box((0, -0.71, 1.62), (0.42, 0.04, 0.62), PAL["door"])
+    for sx in (-1, 1):
+        b.box((0.76 * sx, 0.15, 1.85), (0.04, 0.36, 0.28), PAL["black"])
+    for i in range(4):
+        for sy in (-1, 1):
+            b.box((-0.6 + i * 0.4, 0.15 + 0.82 * sy, 2.36), (0.22, 0.14, 0.22), PAL["stone_dark"])
+    b.build(ctx)
+
+    roof = ctx.part("Roof")
+    roof.cyl((0, 0.15, 2.72), 1.18, 0.9, PAL["roof_blue"], seg=4, radius2=0.0, rot=(0, 0, math.pi / 4))
+    roof.sphere((0, 0.15, 3.2), 0.1, PAL["gold"], seg=6, rings=4)
+    roof.build(ctx, pivot=(0, 0.15, 2.3))
+
+    flag = ctx.part("Flag")
+    flag.cyl((0.55, 0.75, 3.05), 0.04, 1.9, dark, seg=6)
+    flag.sphere((0.55, 0.75, 4.02), 0.07, PAL["gold"], seg=6, rings=4)
+    flag.box((0.92, 0.75, 3.7), (0.72, 0.03, 0.5), PAL["blue"])
+    flag.box((0.92, 0.73, 3.7), (0.22, 0.02, 0.22), PAL["gold"], rot=(0, math.pi / 4, 0))
+    flag.build(ctx, pivot=(0.55, 0.75, 2.1))
+
+    for name, sx, sy in (("WheelFL", -1, -0.85), ("WheelFR", 1, -0.85), ("WheelBL", -1, 0.85), ("WheelBR", 1, 0.85)):
+        w = ctx.part(name)
+        x = 1.12 * sx
+        w.cyl((x, sy, 0.55), 0.55, 0.16, dark, seg=12, rot=(0, math.pi / 2, 0))
+        w.cyl((x, sy, 0.55), 0.58, 0.1, PAL["steel_dark"], seg=12, rot=(0, math.pi / 2, 0))
+        for k in range(4):
+            w.box((x, sy, 0.55), (0.2, 0.08, 0.95), wood, rot=(k * math.pi / 4, 0, 0))
+        w.cyl((x + 0.05 * sx, sy, 0.55), 0.12, 0.24, PAL["gold"], seg=8, rot=(0, math.pi / 2, 0))
+        w.build(ctx, pivot=(x, sy, 0.55))
+
+
 MODELS = {
     "grunt": build_grunt,
     "brute": build_brute,
@@ -536,6 +587,7 @@ MODELS = {
     "tower_blue": build_tower_blue,
     "tower_red": build_tower_red,
     "castle_gate": build_castle_gate,
+    "war_wagon": build_war_wagon,
 }
 
 # allies, enemies and bosses live in characters.py (it builds on the helpers above)

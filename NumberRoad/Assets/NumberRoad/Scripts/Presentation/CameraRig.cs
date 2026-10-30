@@ -3,17 +3,19 @@ using UnityEngine;
 namespace NumberRoad.Presentation
 {
     /// <summary>
-    /// Third-person camera behind the squad. The distance adapts to the screen
-    /// aspect so the whole road width is visible on tall phones as well as on
-    /// landscape iPads, and it carries a small trauma-based screen shake.
+    /// Third-person camera low behind the squad, looking far down the road so the hordes are seen massing in the
+    /// distance, with the war wagon at the bottom of the screen. The distance adapts to the screen aspect so the
+    /// whole road width is visible on tall phones as well as on landscape iPads; it carries a small trauma-based
+    /// screen shake and widens a little while the squad dashes.
     /// </summary>
     public sealed class CameraRig : MonoBehaviour
     {
         public const float Fov = 56f;
-        public const float Pitch = 46f;
-        const float MinDistance = 14.5f;
+        public const float Pitch = 31f;
+        const float MinDistance = 19.5f;
+        const float RushFov = 5f;
         const float VisibleHalfWidth = 4.0f;
-        const float PlayLead = 5.5f;
+        const float PlayLead = 5.4f;
         const float TitleLead = 0.5f;
 
         public Camera Camera { get; private set; }
@@ -28,6 +30,8 @@ namespace NumberRoad.Presentation
         float _extraDistance;
         float _extraTarget;
         float _seed;
+        float _rush;
+        bool _rushing;
 
         public void Init(Color background)
         {
@@ -36,7 +40,7 @@ namespace NumberRoad.Presentation
             Camera.backgroundColor = background;
             Camera.fieldOfView = Fov;
             Camera.nearClipPlane = 0.5f;
-            Camera.farClipPlane = 180f;
+            Camera.farClipPlane = 240f;
             Camera.allowHDR = false;
             Camera.allowMSAA = true;
             gameObject.AddComponent<AudioListener>();
@@ -64,6 +68,9 @@ namespace NumberRoad.Presentation
 
         public void Shake(float amount) => _trauma = Mathf.Min(1f, _trauma + amount);
 
+        /// <summary>DASH: the view widens a little for a sense of speed.</summary>
+        public void SetRush(bool rushing) => _rushing = rushing;
+
         public void Snap(Vector3 squadPosition)
         {
             _lead = _leadTarget;
@@ -83,6 +90,8 @@ namespace NumberRoad.Presentation
             _extraDistance = Mathf.Lerp(_extraDistance, _extraTarget, 1f - Mathf.Exp(-2f * dt));
             _crowd = Mathf.Lerp(_crowd, _crowdTarget, 1f - Mathf.Exp(-1.5f * dt));
             _trauma = Mathf.Max(0f, _trauma - dt * 1.6f);
+            _rush = Mathf.MoveTowards(_rush, _rushing ? 1f : 0f, dt * 4f);
+            Camera.fieldOfView = Fov + _rush * RushFov;
             Place(Time.unscaledTime);
         }
 

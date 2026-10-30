@@ -1,4 +1,5 @@
 using System;
+using NumberRoad.Core;
 using NumberRoad.Presentation;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -92,10 +93,11 @@ namespace NumberRoad.UI
             var text = rt.gameObject.AddComponent<Text>();
             text.font = GameAssets.Font;
             text.fontSize = size;
-            text.fontStyle = FontStyle.Bold;
+            // the bundled Japanese font is already bold; the fallback font gets bolded by Unity
+            text.fontStyle = GameAssets.FontIsBold ? FontStyle.Normal : FontStyle.Bold;
             text.alignment = anchor;
             text.color = color;
-            text.text = value;
+            text.text = Loc.T(value);
             text.raycastTarget = false;
             text.supportRichText = false;
             text.horizontalOverflow = HorizontalWrapMode.Overflow;
@@ -124,6 +126,10 @@ namespace NumberRoad.UI
 
             text = Text(face.rectTransform, "Label", label, fontSize, Color.white, TextAnchor.MiddleCenter, OutlineDark, 3f);
             Fill(text.rectTransform);
+            // a long label (or a longer language) shrinks to fit the button instead of spilling over its edges
+            text.rectTransform.offsetMin = new Vector2(8f, 2f);
+            text.rectTransform.offsetMax = new Vector2(-8f, -2f);
+            text.gameObject.AddComponent<FitLine>();
 
             var button = root.gameObject.AddComponent<Button>();
             button.targetGraphic = face;
@@ -264,6 +270,60 @@ namespace NumberRoad.UI
             inner.rectTransform.offsetMax = new Vector2(-size * 0.12f, -size * 0.12f);
             return outer.rectTransform;
         }
+    }
+
+    /// <summary>
+    /// Keeps a label inside its box: when the text is wider or taller than the box the font shrinks until it fits
+    /// (never below <see cref="MinSize"/>). A font size set from code is taken as the new largest size.
+    /// </summary>
+    public sealed class FitLine : MonoBehaviour
+    {
+        public int MinSize = 14;
+        Text _text;
+        string _fitted;
+        Vector2 _box;
+        int _size;
+        int _applied = -1;
+
+        void Awake()
+        {
+            _text = GetComponent<Text>();
+            _size = _text.fontSize;
+        }
+
+        void OnEnable() => Fit();
+
+        void LateUpdate() => Fit();
+
+        void Fit()
+        {
+            if (_text == null) return;
+            if (_text.fontSize != _applied && _applied >= 0) _size = _text.fontSize;
+            Vector2 box = ((RectTransform)transform).rect.size;
+            if (ReferenceEquals(_text.text, _fitted) && box == _box && _text.fontSize == _applied) return;
+            _fitted = _text.text;
+            _box = box;
+            _text.fontSize = _size;
+            float width = _text.preferredWidth, height = _text.preferredHeight;
+            float scale = 1f;
+            if (width > box.x && width > 0f) scale = box.x / width;
+            if (height > box.y && height > 0f) scale = Mathf.Min(scale, box.y / height);
+            if (scale < 1f) _text.fontSize = Mathf.Max(MinSize, Mathf.FloorToInt(_size * scale));
+            _applied = _text.fontSize;
+        }
+    }
+
+    /// <summary>Reports whether any finger (or the mouse) is holding it down (DASH). Several fingers can be on it.</summary>
+    public sealed class HoldButton : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
+    {
+        readonly System.Collections.Generic.HashSet<int> _pointers = new System.Collections.Generic.HashSet<int>();
+
+        public bool Held => _pointers.Count > 0;
+
+        public void OnPointerDown(PointerEventData eventData) => _pointers.Add(eventData.pointerId);
+        public void OnPointerUp(PointerEventData eventData) => _pointers.Remove(eventData.pointerId);
+
+        void OnDisable() => _pointers.Clear();
     }
 
     /// <summary>Squishes a button while it is held, using unscaled time (works while paused).</summary>

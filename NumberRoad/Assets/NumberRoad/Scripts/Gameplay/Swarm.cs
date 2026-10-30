@@ -81,6 +81,8 @@ namespace NumberRoad.Gameplay
         void OnAgentEscaped(ref Agent a);
         void OnExplosion(Vector3 center, float radius, bool fire);
         void OnBurningGround(float soldiersPerSecond, float dt);
+        /// <summary>The agent got behind the squad and rams the war wagon (it is removed right after).</summary>
+        void OnBreach(ref Agent a);
     }
 
     /// <summary>
@@ -92,7 +94,7 @@ namespace NumberRoad.Gameplay
     public sealed class Swarm
     {
         const int MaxLabels = 18;
-        const float RenderDistance = 92f;
+        const float RenderDistance = 145f;
         const int FrontSize = 48;
         const float FrontReach = 36f;
 
@@ -132,6 +134,8 @@ namespace NumberRoad.Gameplay
         public int Total => Alive + _pending.Count;
         /// <summary>Speed factor from buffs (SLOW TIME, BERSERK).</summary>
         public float SpeedFactor = 1f;
+        /// <summary>Front of the war wagon: an enemy that gets behind this line rams it.</summary>
+        public float BreachZ = float.MinValue;
 
         // targets shared by every soldier this frame
         public int FrontCount { get; private set; }
@@ -258,6 +262,14 @@ namespace NumberRoad.Gameplay
 
                 if (a.State == AgentState.Walk) Move(ref a, t, step, squad, dz, battle);
                 if (a.State == AgentState.Dead || !battle || squad.Count == 0) continue;
+                if (a.Pos.z < BreachZ && !a.Fleeing)
+                {
+                    // slipped past the squad: it runs on into the war wagon
+                    _host.OnBreach(ref a);
+                    a.State = AgentState.Dead;
+                    ReleaseLabel(a.Uid);
+                    continue;
+                }
 
                 bool touching = Touching(ref a, t, squad);
                 if (t.Has(EnemyTrait.Melee))
@@ -567,7 +579,7 @@ namespace NumberRoad.Gameplay
             return HitResult.Killed;
         }
 
-        /// <summary>Applies one plain hit (explosions, VOLLEY). Returns true when it killed the agent.</summary>
+        /// <summary>Applies one plain physical hit. Returns true when it killed the agent.</summary>
         public bool Damage(int i, float damage, bool crit) => Hit(i, damage, Element.Physical, crit, false, 0f, out _) == HitResult.Killed;
 
         public void Ignite(int i, float dps, float seconds)
@@ -624,20 +636,6 @@ namespace NumberRoad.Gameplay
                 if (frost > 0f) SlowDown(j, frost, 2f);
             }
             Return(near);
-            return kills;
-        }
-
-        /// <summary>Damages everything between two distances along the road (VOLLEY). Returns the kills.</summary>
-        public int BoxDamage(float z0, float z1, float damage)
-        {
-            int kills = 0;
-            int n = Count;
-            for (int i = 0; i < n; i++)
-            {
-                ref Agent a = ref Agents[i];
-                if (a.State == AgentState.Dead || a.Pos.z < z0 || a.Pos.z > z1) continue;
-                if (Damage(i, damage, false)) kills++;
-            }
             return kills;
         }
 

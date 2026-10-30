@@ -210,6 +210,39 @@ namespace NumberRoad.Core
             return weight > 0 ? (float)(sum / weight) : 1f;
         }
 
+        /// <summary>Share of the army's single-target damage that comes from classes matching <paramref name="pick"/>.</summary>
+        public float DamageShare(Func<UnitClass, bool> pick)
+        {
+            double sum = 0, weight = 0;
+            for (int i = 0; i < Units.Count; i++)
+            {
+                if (_counts[i] == 0) continue;
+                UnitClass unit = Units.All[i];
+                double dps = (double)_counts[i] * unit.Dps;
+                if (pick(unit)) sum += dps;
+                weight += dps;
+            }
+            return weight > 0 ? (float)(sum / weight) : 0f;
+        }
+
+        /// <summary>How far the army's attacks reach, weighted by each class's share of the damage.</summary>
+        public float Reach
+        {
+            get
+            {
+                double sum = 0, weight = 0;
+                for (int i = 0; i < Units.Count; i++)
+                {
+                    if (_counts[i] == 0) continue;
+                    UnitClass unit = Units.All[i];
+                    double dps = (double)_counts[i] * unit.Dps;
+                    sum += dps * unit.Range;
+                    weight += dps;
+                }
+                return weight > 0 ? (float)(sum / weight) : 0f;
+            }
+        }
+
         /// <summary>Average number of horde enemies one bullet takes down (splash / pierce).</summary>
         public float CrowdFactor
         {

@@ -49,10 +49,10 @@ namespace NumberRoad.UI
             var top = new Vector2(0.5f, 1f);
 
             // --- top bar
-            Button settings = UIFactory.Button(root, "Settings", "SETTINGS", UIFactory.Blue, 34, panels.ShowSettings, out _);
+            Button settings = UIFactory.Button(root, "Settings", Loc.T("SETTINGS"), UIFactory.Blue, 34, panels.ShowSettings, out _);
             UIFactory.Place((RectTransform)settings.transform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -24f), new Vector2(230f, 96f));
             // only there while something is waiting to be collected
-            Button claimAll = UIFactory.Button(root, "ClaimAll", "CLAIM ALL", UIFactory.Green, 32, panels.ClaimAll, out _);
+            Button claimAll = UIFactory.Button(root, "ClaimAll", Loc.T("CLAIM ALL"), UIFactory.Green, 32, panels.ClaimAll, out _);
             var claimRect = (RectTransform)claimAll.transform;
             UIFactory.Place(claimRect, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -128f), new Vector2(230f, 88f));
             claimAll.gameObject.AddComponent<Pulse>().Amount = 0.05f;
@@ -64,9 +64,9 @@ namespace NumberRoad.UI
             UIFactory.Place(gems, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -128f), new Vector2(240f, 84f));
 
             // --- logo
-            Text logo1 = UIFactory.Text(root, "Logo1", "NUMBER", 118, Color.white, TextAnchor.MiddleCenter, UIFactory.BlueDark, 7f);
+            Text logo1 = UIFactory.Text(root, "Logo1", Loc.T("NUMBER"), 118, Color.white, TextAnchor.MiddleCenter, UIFactory.BlueDark, 7f);
             UIFactory.Place(logo1.rectTransform, top, top, new Vector2(0f, -112f), new Vector2(1000f, 140f));
-            Text logo2 = UIFactory.Text(root, "Logo2", "ROAD", 156, UIFactory.Gold, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 8f);
+            Text logo2 = UIFactory.Text(root, "Logo2", Loc.T("ROAD"), 144, UIFactory.Gold, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 8f);
             UIFactory.Place(logo2.rectTransform, top, top, new Vector2(0f, -222f), new Vector2(1000f, 176f));
 
             // --- level picker: arrows step through the levels reached so far, the number opens the list
@@ -80,7 +80,7 @@ namespace NumberRoad.UI
                 panels.ShowLevels();
             });
             levelHit.gameObject.AddComponent<PressScale>();
-            _level = UIFactory.Text(levelHit.rectTransform, "Level", "LEVEL 1", 74, Color.white, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 4f);
+            _level = UIFactory.Text(levelHit.rectTransform, "Level", Loc.T("LEVEL 1"), 74, Color.white, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 4f);
             UIFactory.Fill(_level.rectTransform);
             _prev = UIFactory.Button(root, "Prev", "<", UIFactory.Blue, 64, () => game.SelectLevel(game.Save.level - 1), out _);
             UIFactory.Place((RectTransform)_prev.transform, top, top, new Vector2(-310f, -410f), new Vector2(120f, 108f));
@@ -107,30 +107,30 @@ namespace NumberRoad.UI
             _unlockFill.offsetMax = Vector2.zero;
 
             // --- left column: collection and records; right column: rewards
-            SideButton(root, "Units", "UNITS", 0f, 193f, UIFactory.Blue, panels.ShowBarracks, out _);
-            SideButton(root, "Enemies", "ENEMIES", 0f, 89f, UIFactory.Blue, panels.ShowBestiary, out _);
-            SideButton(root, "Ranking", "RANKING", 0f, -15f, UIFactory.Blue, panels.ShowRanking, out _);
-            SideButton(root, "Stats", "STATS", 0f, -119f, UIFactory.Blue, panels.ShowStats, out _);
-            RectTransform daily = SideButton(root, "Daily", "DAILY", 1f, 193f, UIFactory.Green, panels.ShowDaily, out _);
+            SideButton(root, "Units", Loc.T("UNITS"), 0f, 193f, UIFactory.Blue, panels.ShowBarracks, out _);
+            SideButton(root, "Enemies", Loc.T("ENEMIES"), 0f, 89f, UIFactory.Blue, panels.ShowBestiary, out _);
+            SideButton(root, "Ranking", Loc.T("RANKING"), 0f, -15f, UIFactory.Blue, panels.ShowRanking, out _);
+            SideButton(root, "Stats", Loc.T("STATS"), 0f, -119f, UIFactory.Blue, panels.ShowStats, out _);
+            RectTransform daily = SideButton(root, "Daily", Loc.T("DAILY"), 1f, 193f, UIFactory.Green, panels.ShowDaily, out _);
             UIFactory.Badge(daily, out _dailyBadge).text = "!";
-            RectTransform lucky = SideButton(root, "Lucky", "LUCKY", 1f, 89f, UIFactory.Gold, panels.ShowLucky, out _);
+            RectTransform lucky = SideButton(root, "Lucky", Loc.T("LUCKY"), 1f, 89f, UIFactory.Gold, panels.ShowLucky, out _);
             UIFactory.Badge(lucky, out _luckyBadge).text = "!";
-            RectTransform challenge = SideButton(root, "Challenge", "CHALLENGE", 1f, -15f, UIFactory.Red, panels.ShowChallenge, out _challengeText);
+            RectTransform challenge = SideButton(root, "Challenge", Loc.T("CHALLENGE"), 1f, -15f, UIFactory.Red, panels.ShowChallenge, out _challengeText);
             UIFactory.Badge(challenge, out _challengeBadge).text = "!";
-            SideButton(root, "Endless", "ENDLESS", 1f, -119f, new Color32(120, 70, 200, 255), panels.ShowEndless, out _);
-            RectTransform awards = SideButton(root, "Awards", "AWARDS", 1f, -223f, UIFactory.Purple, panels.ShowAchievements, out _);
+            SideButton(root, "Endless", Loc.T("ENDLESS"), 1f, -119f, new Color32(120, 70, 200, 255), panels.ShowEndless, out _);
+            RectTransform awards = SideButton(root, "Awards", Loc.T("AWARDS"), 1f, -223f, UIFactory.Purple, panels.ShowAchievements, out _);
             _awardsBadge = UIFactory.Badge(awards, out _awardsBadgeRoot);
 
             // --- bottom: play, line picker, upgrades
             var bottom = new Vector2(0.5f, 0f);
             RectTransform playHolder = UIFactory.Place(UIFactory.Rect(root, "PlayHolder"), bottom, bottom, new Vector2(0f, 482f), new Vector2(600f, 166f));
             playHolder.gameObject.AddComponent<Pulse>();
-            Button play = UIFactory.Button(playHolder, "Play", "PLAY", UIFactory.Gold, 100, game.Play, out _);
+            Button play = UIFactory.Button(playHolder, "Play", Loc.T("PLAY"), UIFactory.Gold, 100, game.Play, out _);
             UIFactory.Fill((RectTransform)play.transform);
-            _coupon = UIFactory.Text(root, "Coupon", "x2 COINS NEXT RUN", 30, UIFactory.Gold, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 2f);
+            _coupon = UIFactory.Text(root, "Coupon", Loc.T("x2 COINS NEXT RUN"), 30, UIFactory.Gold, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 2f);
             UIFactory.Place(_coupon.rectTransform, bottom, bottom, new Vector2(0f, 654f), new Vector2(520f, 44f));
 
-            Text startWith = UIFactory.Text(root, "StartWith", "START WITH", 28, Color.white, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 2f);
+            Text startWith = UIFactory.Text(root, "StartWith", Loc.T("START WITH"), 28, Color.white, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 2f);
             UIFactory.Place(startWith.rectTransform, bottom, bottom, new Vector2(0f, 402f), new Vector2(600f, 40f));
             RectTransform lines = UIFactory.Place(UIFactory.Rect(root, "Lines"), bottom, bottom, new Vector2(0f, 296f), new Vector2(1040f, 104f));
             _lines = new LineButton[Units.Lines];
@@ -164,13 +164,13 @@ namespace NumberRoad.UI
 
         public void Refresh(SaveData save)
         {
-            _level.text = "LEVEL " + save.level;
+            _level.text = Loc.F("LEVEL {0}", save.level);
             bool canPrev = save.level > 1, canNext = save.level < save.bestLevel;
             _prev.interactable = canPrev;
             _next.interactable = canNext;
             UIFactory.SetButtonColor(_prev, canPrev ? UIFactory.Blue : UIFactory.Gray);
             UIFactory.SetButtonColor(_next, canNext ? UIFactory.Blue : UIFactory.Gray);
-            _biome.text = Biomes.ForLevel(save.level).Name;
+            _biome.text = Loc.T(Biomes.ForLevel(save.level).Name);
             _stars.text = save.TotalStars + "/" + Mathf.Max(1, save.bestLevel - 1) * 3;
             _coins.text = UIRoot.Number(save.coins);
             _gems.text = UIRoot.Number(save.gems);
@@ -187,13 +187,13 @@ namespace NumberRoad.UI
                     int u = Units.UnlockLevel((UnitLine)l);
                     if (u <= save.bestLevel) from = Mathf.Max(from, u);
                 }
-                _unlock.text = "NEXT UNIT: " + Units.LineName(next.Value) + " AT LEVEL " + at;
+                _unlock.text = Loc.F("NEXT UNIT: {0} AT LEVEL {1}", Loc.T(Units.LineName(next.Value)), at);
                 float t = Mathf.Clamp01((save.bestLevel - from) / (float)Mathf.Max(1, at - from));
                 _unlockFill.anchorMax = new Vector2(Mathf.Max(0.06f, t), 1f);
             }
             else
             {
-                _unlock.text = save.EnemiesDiscovered + "/" + Enemies.All.Length + " ENEMIES FOUND";
+                _unlock.text = Loc.F("{0}/{1} ENEMIES FOUND", save.EnemiesDiscovered, Enemies.All.Length);
             }
 
             foreach (UpgradeCard card in _cards) card.Refresh(save);
@@ -210,7 +210,7 @@ namespace NumberRoad.UI
             _luckyBadge.SetActive(Daily.LuckyReady(save, today));
             bool challenge = Daily.ChallengeReady(save, today);
             _challengeBadge.SetActive(challenge);
-            _challengeText.text = challenge ? "CHALLENGE" : "DONE TODAY";
+            _challengeText.text = Loc.T(challenge ? "CHALLENGE" : "DONE TODAY");
         }
 
         public void Tick(float dt)
@@ -268,7 +268,7 @@ namespace NumberRoad.UI
                 case UpgradeKind.Income: return "COINS";
                 case UpgradeKind.Crit: return "CRITICAL";
                 case UpgradeKind.Armor: return "ARMOR";
-                case UpgradeKind.Skill: return "VOLLEY";
+                case UpgradeKind.Base: return "BASE";
                 default: return "RECRUIT";
             }
         }
@@ -284,7 +284,7 @@ namespace NumberRoad.UI
                 case UpgradeKind.Income: return "x" + Balance.IncomeMultiplier(level).ToString("0.0", c);
                 case UpgradeKind.Crit: return Mathf.RoundToInt(Balance.CritChance(level) * 100f) + "%";
                 case UpgradeKind.Armor: return "+" + Mathf.RoundToInt(Balance.GuardBonus(level) * 100f) + "%";
-                case UpgradeKind.Skill: return Balance.SkillPower(level).ToString("0.0", c) + "s";
+                case UpgradeKind.Base: return "x" + Balance.BaseToughness(level).ToString("0.00", c);
                 default: return "x" + Balance.RecruitBonus(level).ToString("0.00", c);
             }
         }
@@ -294,7 +294,7 @@ namespace NumberRoad.UI
             int level = save.GetUpgrade(_kind);
             int cost = save.UpgradeCost(_kind);
             _value.text = ValueText(_kind, level);
-            _level.text = "Lv " + (level + 1);
+            _level.text = Loc.F("Lv {0}", level + 1);
             _cost.text = Fmt.Num(cost);
             _affordable = save.coins >= cost;
             _buy.interactable = _affordable;
@@ -332,7 +332,7 @@ namespace NumberRoad.UI
             bool selected = save.StartLine == _line;
             _button.interactable = unlocked;
             UIFactory.SetButtonColor(_button, unlocked ? Units.LineColor(_line) : UIFactory.Gray);
-            _text.text = unlocked ? Units.LineName(_line) : "LV " + Units.UnlockLevel(_line);
+            _text.text = unlocked ? Loc.T(Units.LineName(_line)) : Loc.F("LV {0}", Units.UnlockLevel(_line));
             _frame.color = selected ? Color.white : new Color(1f, 1f, 1f, 0f);
         }
     }

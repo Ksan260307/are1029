@@ -98,6 +98,56 @@ namespace NumberRoad.Tests
         }
 
         [UnityTest]
+        public IEnumerator EnemiesThatSlipPast_DamageTheWarWagon()
+        {
+            _root.Play();
+            LevelSession s = _root.Session;
+            while (s.Countdown > 0f) yield return null;
+            Assert.AreEqual(1f, s.BaseHealth, 1e-4f);
+            // a column of goblins walks straight down the far side of the road, past the squad
+            float x = s.Squad.X > 0f ? -3.4f : 3.4f;
+            for (int i = 0; i < 12; i++)
+            {
+                s.Swarm.Spawn(Enemies.Get(0).Id, new Vector3(x, 0f, s.Squad.Z + 1f + i * 0.5f), 1000f, 1, 1, true, false, true);
+            }
+            float clock = 0f;
+            while (s.BaseHealth >= 1f && clock < 6f)
+            {
+                clock += Time.unscaledDeltaTime;
+                yield return null;
+            }
+            Assert.Less(s.BaseHealth, 1f, "the wagon took the hits");
+            Assert.Greater(s.Stats.BaseDamage, 0f);
+            Assert.AreEqual(GameState.Playing, _root.State);
+        }
+
+        [UnityTest]
+        public IEnumerator Dash_ChargesAheadWhileHeld()
+        {
+            _root.Play();
+            LevelSession s = _root.Session;
+            while (s.Countdown > 0f) yield return null;
+            _root.HoldDash = true;
+            float clock = 0f;
+            while (!s.Rushing && clock < 2f)
+            {
+                clock += Time.unscaledDeltaTime;
+                yield return null;
+            }
+            Assert.IsTrue(s.Dash);
+            Assert.IsTrue(s.Rushing, "holding DASH speeds the squad up");
+            Assert.IsFalse(s.FastMarch);
+            _root.HoldDash = false;
+            clock = 0f;
+            while (s.Rushing && clock < 3f)
+            {
+                clock += Time.unscaledDeltaTime;
+                yield return null;
+            }
+            Assert.IsFalse(s.Rushing, "letting go slows back down");
+        }
+
+        [UnityTest]
         public IEnumerator SpeedButton_DoublesTheGameSpeed()
         {
             _root.Play();
@@ -142,8 +192,28 @@ namespace NumberRoad.Tests
         [UnityTest, Timeout(600000)]
         public IEnumerator Endless_ClearedStage_LeadsIntoAStrongerNextStage()
         {
+            // a fresh save at level 2 with the upgrades that level expects, so the run does not depend on earlier tests
+            string backup = PlayerPrefs.GetString(SaveSystem.Key, string.Empty);
+            SaveData save = _root.Save;
+            JsonUtility.FromJsonOverwrite(SaveSystem.ToJson(new SaveData { level = 2, bestLevel = 2 }), save);
+            int upgrades = Mathf.FloorToInt(LevelGenerator.ReferenceUpgrades(2));
+            foreach (UpgradeKind k in (UpgradeKind[])System.Enum.GetValues(typeof(UpgradeKind))) save.SetUpgrade(k, upgrades);
+            try
+            {
+                IEnumerator run = EndlessRun();
+                while (run.MoveNext()) yield return run.Current;
+            }
+            finally
+            {
+                PlayerPrefs.SetString(SaveSystem.Key, backup);
+                PlayerPrefs.Save();
+            }
+        }
+
+        IEnumerator EndlessRun()
+        {
+            _root.ShowTitle();
             _root.AutoPlay = true;
-            _root.Save.fastMarch = true;
             _root.PlayEndless();
             Assert.NotNull(_root.Endless);
             LevelSession first = _root.Session;
@@ -224,7 +294,7 @@ namespace NumberRoad.Tests
                                       $"(ref {Fmt.Num((long)s.Def.expectedCount)}) kills {st.Kills} coins {r?.TotalCoins} at {s.Progress:0.00} bossHp {s.BossHpLeft:0.00} " +
                                       $"{s.Elapsed:0}s lost contact {st.LostContact} melee {st.LostMelee} shots {st.LostShots} boss {st.LostBoss} gates {st.LostGates} " +
                                       $"upgrades {save.squadLevel}/{save.powerLevel}/{save.rateLevel}/{save.critLevel}/{save.armorLevel}/{save.incomeLevel} " +
-                                      $"buffs [{Buffs.Summary(s.Mods)}]";
+                                      $"base -{s.Stats.BaseDamage * 100f:0}%{(s.BaseDestroyed ? " WRECKED" : string.Empty)} buffs [{Buffs.Summary(s.Mods)}]";
                     report.AppendLine(line);
                     Debug.Log("[NumberRoad] sweep " + line);
                     _root.Home();
@@ -244,6 +314,97 @@ namespace NumberRoad.Tests
             Debug.Log(report.ToString());
             PlayerPrefs.SetString(SaveSystem.Key, backup);
             PlayerPrefs.Save();
+        }
+
+        /// <summary>
+        /// Plays a few levels with the auto pilot (upgrades as each level expects) and logs the road (hordes and what is
+        /// in them, gates, crates) and then the squad, the enemies near it, kills and losses every second - for finding
+        /// where a level goes wrong (not run by default; change the list to look at other levels).
+        /// </summary>
+        [UnityTest, Explicit, Timeout(1800000)]
+        public IEnumerator LevelTrace()
+        {
+            foreach (int level in new[] { 7, 12, 20 })
+            {
+                IEnumerator run = TraceLevel(level);
+                while (run.MoveNext()) yield return run.Current;
+            }
+        }
+
+        IEnumerator TraceLevel(int level)
+        {
+            string backup = PlayerPrefs.GetString(SaveSystem.Key, string.Empty);
+            SaveData save = _root.Save;
+            JsonUtility.FromJsonOverwrite(SaveSystem.ToJson(new SaveData { level = level, bestLevel = level }), save);
+            int upgrades = Mathf.FloorToInt(LevelGenerator.ReferenceUpgrades(level));
+            foreach (UpgradeKind k in (UpgradeKind[])System.Enum.GetValues(typeof(UpgradeKind))) save.SetUpgrade(k, upgrades);
+            _root.AutoPlay = true;
+            _root.TimeScale = 2f;
+            _root.ShowTitle();
+            _root.Play();
+            LevelSession s = _root.Session;
+            var report = new System.Text.StringBuilder($"[NumberRoad] trace L{level}\n");
+            foreach (SpawnEvent ev in s.Def.events)
+            {
+                if (ev.kind == SpawnKind.Horde)
+                {
+                    report.Append($"  horde z {ev.z:0} x {ev.x:0.0} size {ev.HordeTotal} hp {ev.hp:0.00} lane {ev.laneLocked} elites {ev.elites}");
+                    foreach (HordeUnit u in ev.units) report.Append($" {Enemies.Get(u.type).Name}x{u.count}(hp{Enemies.Get(u.type).Hp:0.#})");
+                    report.AppendLine();
+                }
+                else if (ev.kind == SpawnKind.GateRow)
+                {
+                    report.Append($"  gates z {ev.z:0} slide {ev.slide:0.0}");
+                    foreach (GateSpec g in ev.gates)
+                    {
+                        report.Append($" [{g.effect}{(g.roulette != null ? " roulette" : "")}{(g.mystery ? " ?" : "")}{(g.jackpot ? " jackpot" : "")}" +
+                                      $"{(g.lockHp > 0f ? $" lock {g.lockHp:0}" : "")}{(g.shootable ? $" shoot to {g.maxValue}" : "")}]");
+                    }
+                    report.AppendLine();
+                }
+                else report.AppendLine($"  {ev.kind} z {ev.z:0} x {ev.x:0.0} effect {ev.effect} hp {ev.hp:0.0}");
+            }
+            float next = 0f;
+            while (_root.State == GameState.Playing && s.Elapsed < 400f)
+            {
+                if (s.Elapsed >= next)
+                {
+                    next += 1f;
+                    CountNear(s, out int near, out int awake);
+                    report.AppendLine($"  t {s.Elapsed:0} z {s.Squad.Z:0} x {s.Squad.X:0.0} army {s.Squad.Count} near {near} awake {awake} kills {s.Stats.Kills} " +
+                                      $"contact {s.Stats.LostContact} melee {s.Stats.LostMelee} shots {s.Stats.LostShots} gates {s.Stats.LostGates} base {s.BaseHealth:0.00} wave {s.Wave + 1}" +
+                                      $" dmg {s.Squad.Weapon.damageMul:0.00} rate {s.Squad.Weapon.fireRateMul:0.00} multi {s.Squad.Weapon.multiShot}{ArmyText(s.Squad)}");
+                }
+                yield return null;
+            }
+            report.AppendLine($"  end {_root.State} at {s.Progress:0.00}");
+            Debug.Log(report.ToString());
+            PlayerPrefs.SetString(SaveSystem.Key, backup);
+            PlayerPrefs.Save();
+        }
+
+        static string ArmyText(Squad squad)
+        {
+            var text = new System.Text.StringBuilder();
+            for (int i = 0; i < Units.Count; i++)
+            {
+                if (squad.Army[i] > 0) text.Append($" {Units.All[i].Name}x{squad.Army[i]}");
+            }
+            return text.ToString();
+        }
+
+        static void CountNear(LevelSession s, out int near, out int awake)
+        {
+            near = awake = 0;
+            for (int i = 0; i < s.Swarm.Count; i++)
+            {
+                Agent a = s.Swarm.Agents[i];
+                if (a.State == AgentState.Dead) continue;
+                float dz = a.Pos.z - s.Squad.Z;
+                if (dz < -2f || dz > 36f) continue;
+                near++;
+                if (a.State != AgentState.Idle) awake++;
+            }
         }
 
         /// <summary>

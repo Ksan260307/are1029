@@ -70,7 +70,7 @@ namespace NumberRoad.UI
             card.gameObject.AddComponent<PopIn>();
             RectTransform c = card.rectTransform;
 
-            Text head = UIFactory.Text(c, "Title", title, 72, UIFactory.Ink);
+            Text head = UIFactory.Text(c, "Title", Loc.T(title), 72, UIFactory.Ink);
             UIFactory.Place(head.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -24f), new Vector2(size.x - 260f, 100f));
             // long titles shrink instead of running under the close button
             head.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -78,7 +78,7 @@ namespace NumberRoad.UI
             head.resizeTextForBestFit = true;
             head.resizeTextMinSize = 40;
             head.resizeTextMaxSize = 72;
-            Button close = UIFactory.Button(c, "Close", "X", UIFactory.Red, 50, CloseAll, out _);
+            Button close = UIFactory.Button(c, "Close", Loc.T("X"), UIFactory.Red, 50, CloseAll, out _);
             UIFactory.Place((RectTransform)close.transform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-20f, -20f), new Vector2(104f, 104f));
 
             RectTransform body = UIFactory.Rect(c, "Body");
@@ -101,7 +101,7 @@ namespace NumberRoad.UI
         static Text Label(RectTransform parent, string text, int size, Color color, TextAnchor anchor, Vector2 anchorPoint, Vector2 position, Vector2 box,
             Vector2? pivot = null)
         {
-            Text t = UIFactory.Text(parent, "Text", text, size, color, anchor);
+            Text t = UIFactory.Text(parent, "Text", Loc.T(text), size, color, anchor);
             UIFactory.Place(t.rectTransform, anchorPoint, pivot ?? anchorPoint, position, box);
             t.horizontalOverflow = HorizontalWrapMode.Wrap;
             return t;
@@ -120,7 +120,7 @@ namespace NumberRoad.UI
 
         Button Big(RectTransform parent, string label, Color color, Action onClick, Vector2 anchor, Vector2 position, Vector2 size, out Text text)
         {
-            Button b = UIFactory.Button(parent, label, label, color, 50, onClick, out text);
+            Button b = UIFactory.Button(parent, label, Loc.T(label), color, 50, onClick, out text);
             UIFactory.Place((RectTransform)b.transform, anchor, anchor, position, size);
             return b;
         }
@@ -129,11 +129,11 @@ namespace NumberRoad.UI
 
         public void ShowSettings()
         {
-            RectTransform body = Open("SETTINGS", new Vector2(820f, 1180f), ShowSettings);
+            RectTransform body = Open("SETTINGS", new Vector2(820f, 1320f), ShowSettings);
             var top = new Vector2(0.5f, 1f);
             Toggle(body, "SOUND EFFECTS", Save.sound, () => _game.SetSound(!Save.sound), -20f);
-            Toggle(body, "MUSIC", Save.music, () => _game.SetMusic(!Save.music), -170f);
-            Toggle(body, "VIBRATION", Save.vibration, () => _game.SetVibration(!Save.vibration), -320f);
+            Toggle(body, "MUSIC", Save.music, () => _game.SetMusic(!Save.music), -160f);
+            Toggle(body, "VIBRATION", Save.vibration, () => _game.SetVibration(!Save.vibration), -300f);
             string quality;
             switch ((Quality)Save.quality)
             {
@@ -141,11 +141,14 @@ namespace NumberRoad.UI
                 case Quality.Low: quality = "LOW"; break;
                 default: quality = "AUTO"; break;
             }
-            Big(body, "QUALITY: " + quality, UIFactory.Blue, _game.CycleQuality, top, new Vector2(0f, -470f), new Vector2(620f, 130f), out _);
-            Label(body, "LOW quality draws far enemies simply and uses fewer particles. AUTO switches to it when the game runs slowly.",
-                28, UIFactory.Gray, TextAnchor.UpperCenter, top, new Vector2(0f, -606f), new Vector2(720f, 90f));
-            Label(body, "HOW TO PLAY\nDrag to steer. Pass through the best gate, shoot crates and gold goblins, build a huge army and defeat the boss!",
-                28, UIFactory.Ink, TextAnchor.UpperCenter, top, new Vector2(0f, -706f), new Vector2(740f, 140f));
+            Big(body, Loc.F("QUALITY: {0}", Loc.T(quality)), UIFactory.Blue, _game.CycleQuality, top, new Vector2(0f, -440f), new Vector2(620f, 130f), out _);
+            // both names, so the switch can be found in either language
+            Big(body, "言語 / LANGUAGE: " + (Loc.Japanese ? "日本語" : "ENGLISH"), UIFactory.Purple,
+                () => _game.SetLanguage(Loc.Japanese ? Language.English : Language.Japanese), top, new Vector2(0f, -580f), new Vector2(620f, 130f), out _);
+            Label(body, Loc.T("LOW quality draws far enemies simply and uses fewer particles. AUTO switches to it when the game runs slowly."),
+                28, UIFactory.Gray, TextAnchor.UpperCenter, top, new Vector2(0f, -726f), new Vector2(720f, 90f));
+            Label(body, Loc.T("HOW TO PLAY\nDrag to steer. Pass through the best gate, shoot crates and gold goblins, build a huge army and defeat the boss!"),
+                28, UIFactory.Ink, TextAnchor.UpperCenter, top, new Vector2(0f, -826f), new Vector2(740f, 140f));
             Big(body, "RESET PROGRESS", UIFactory.Red, ShowResetConfirm, new Vector2(0.5f, 0f), new Vector2(0f, 30f), new Vector2(520f, 110f), out Text reset);
             reset.fontSize = 40;
         }
@@ -154,8 +157,8 @@ namespace NumberRoad.UI
         {
             RectTransform body = Open("RESET?", new Vector2(820f, 760f), null);
             var top = new Vector2(0.5f, 1f);
-            Label(body, "ALL PROGRESS WILL BE DELETED:", 38, UIFactory.Red, TextAnchor.MiddleCenter, top, new Vector2(0f, -20f), new Vector2(760f, 56f));
-            Label(body, "levels, coins, gems, upgrades, awards, records and the ranking.\nSound and display settings are kept. This cannot be undone.",
+            Label(body, Loc.T("ALL PROGRESS WILL BE DELETED:"), 38, UIFactory.Red, TextAnchor.MiddleCenter, top, new Vector2(0f, -20f), new Vector2(760f, 56f));
+            Label(body, Loc.T("levels, coins, gems, upgrades, awards, records and the ranking.\nSound and display settings are kept. This cannot be undone."),
                 30, UIFactory.Ink, TextAnchor.UpperCenter, top, new Vector2(0f, -100f), new Vector2(740f, 160f));
             Big(body, "CANCEL", UIFactory.Gray, ShowSettings, new Vector2(0.5f, 0f), new Vector2(-180f, 40f), new Vector2(320f, 130f), out _);
             Big(body, "RESET", UIFactory.Red, () =>
@@ -167,7 +170,7 @@ namespace NumberRoad.UI
 
         void Toggle(RectTransform body, string name, bool on, Action onClick, float y)
         {
-            Button b = Big(body, name + (on ? ": ON" : ": OFF"), on ? UIFactory.Green : UIFactory.Gray, onClick,
+            Button b = Big(body, Loc.F(on ? "{0}: ON" : "{0}: OFF", Loc.T(name)), on ? UIFactory.Green : UIFactory.Gray, onClick,
                 new Vector2(0.5f, 1f), new Vector2(0f, y), new Vector2(620f, 130f), out _);
             b.name = name;
         }
@@ -239,12 +242,12 @@ namespace NumberRoad.UI
                     new Vector2((i - 1) * 270f, -10f), new Vector2(250f, 100f), out Text t);
                 t.fontSize = 38;
             }
-            Label(body, "YOUR BEST RUNS ON THIS DEVICE", 26, UIFactory.Gray, TextAnchor.MiddleCenter, top, new Vector2(0f, -122f), new Vector2(800f, 36f));
+            Label(body, Loc.T("YOUR BEST RUNS ON THIS DEVICE"), 26, UIFactory.Gray, TextAnchor.MiddleCenter, top, new Vector2(0f, -122f), new Vector2(800f, 36f));
 
             System.Collections.Generic.List<RankEntry> entries = Ranking.Top(Save, tab);
             if (entries.Count == 0)
             {
-                Label(body, "NO RUNS YET - GO PLAY!", 40, UIFactory.Ink, TextAnchor.MiddleCenter, top, new Vector2(0f, -400f), new Vector2(800f, 60f));
+                Label(body, Loc.T("NO RUNS YET - GO PLAY!"), 40, UIFactory.Ink, TextAnchor.MiddleCenter, top, new Vector2(0f, -400f), new Vector2(800f, 60f));
                 return;
             }
             for (int i = 0; i < entries.Count; i++)
@@ -257,11 +260,11 @@ namespace NumberRoad.UI
                 Color medal = i == 0 ? UIFactory.GoldDark : i == 1 ? UIFactory.Gray : i == 2 ? new Color32(176, 110, 60, 255) : UIFactory.Ink;
                 Label(r, "#" + (i + 1), 46, medal, TextAnchor.MiddleCenter, new Vector2(0f, 0.5f), new Vector2(16f, 0f), new Vector2(110f, 80f), new Vector2(0f, 0.5f));
                 Label(r, Fmt.Num(Ranking.Value(e, tab)), 46, UIFactory.Ink, TextAnchor.MiddleLeft, new Vector2(0f, 0.5f), new Vector2(140f, 10f), new Vector2(330f, 60f), new Vector2(0f, 0.5f));
-                string where = e.endless ? "ENDLESS STAGE " + e.stage : (e.daily ? "DAILY " : "LEVEL ") + e.level + (e.won ? "  CLEAR" : "");
+                string where = e.endless ? Loc.F("ENDLESS STAGE {0}", e.stage) : Loc.F(e.daily ? "DAILY {0}" : "LEVEL {0}", e.level) + (e.won ? Loc.T("  CLEAR") : string.Empty);
                 Label(r, where, 24, e.won ? UIFactory.Green : UIFactory.Gray, TextAnchor.MiddleLeft, new Vector2(0f, 0.5f), new Vector2(142f, -30f), new Vector2(330f, 34f), new Vector2(0f, 0.5f));
                 string detail = tab == RankMetric.Score
-                    ? "ARMY " + Fmt.Num(e.army) + "   COMBO " + Fmt.Num(e.combo)
-                    : "SCORE " + Fmt.Num(e.score);
+                    ? Loc.F("ARMY {0}   COMBO {1}", Fmt.Num(e.army), Fmt.Num(e.combo))
+                    : Loc.F("SCORE {0}", Fmt.Num(e.score));
                 Label(r, detail, 24, UIFactory.Gray, TextAnchor.MiddleRight, new Vector2(1f, 0.5f), new Vector2(-20f, 14f), new Vector2(360f, 34f), new Vector2(1f, 0.5f));
                 string date = System.DateTimeOffset.FromUnixTimeSeconds(e.unix).ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture);
                 Label(r, date, 22, UIFactory.Gray, TextAnchor.MiddleRight, new Vector2(1f, 0.5f), new Vector2(-20f, -22f), new Vector2(360f, 30f), new Vector2(1f, 0.5f));
@@ -282,7 +285,7 @@ namespace NumberRoad.UI
                 RectTransform row = UIFactory.Item(list, "Line" + l, new Vector2(840f, 410f));
                 Image back = UIFactory.Image(row, "Back", Color.Lerp(Units.LineColor(line), Color.white, 0.75f), GameAssets.RoundedSprite);
                 UIFactory.Fill(back.rectTransform);
-                Label(row, Units.LineName(line) + " LINE" + (open ? string.Empty : "  -  UNLOCKS AT LEVEL " + Units.UnlockLevel(line)),
+                Label(row, Loc.F("{0} LINE", Loc.T(Units.LineName(line))) + (open ? string.Empty : Loc.F("  -  UNLOCKS AT LEVEL {0}", Units.UnlockLevel(line))),
                     32, UIFactory.Ink, TextAnchor.MiddleCenter, hang, new Vector2(0f, -12f), new Vector2(800f, 44f));
                 for (int t = 0; t < Units.Tiers; t++)
                 {
@@ -291,17 +294,17 @@ namespace NumberRoad.UI
                     // four 200-wide columns; x is each column's centre
                     float x = 112f + t * 205f;
                     Portrait(row, u.Model, known, topLeft, new Vector2(x, -58f), 150f, hang);
-                    Label(row, known ? u.Name : "???", 28, UIFactory.Ink, TextAnchor.MiddleCenter, topLeft, new Vector2(x, -210f), new Vector2(200f, 36f), hang);
+                    Label(row, known ? Loc.T(u.Name) : "???", 28, UIFactory.Ink, TextAnchor.MiddleCenter, topLeft, new Vector2(x, -210f), new Vector2(200f, 36f), hang);
                     if (known)
                     {
                         // how it attacks, in the colour of its element
-                        string how = Units.StyleName(u.Style) + (u.Element != Element.Physical ? "  " + Units.ElementName(u.Element) : string.Empty);
+                        string how = Loc.T(Units.StyleName(u.Style)) + (u.Element != Element.Physical ? "  " + Loc.T(Units.ElementName(u.Element)) : string.Empty);
                         Label(row, how, 21, u.Element == Element.Physical ? UIFactory.Ink : Color.Lerp(Units.ElementColor(u.Element), UIFactory.Ink, 0.45f), TextAnchor.MiddleCenter, topLeft,
                             new Vector2(x, -248f), new Vector2(200f, 30f), hang);
                     }
                     string stats = known
-                        ? "DMG " + u.Damage.ToString("0.#", CultureInfo.InvariantCulture) + "  RATE " + u.Rate.ToString("0.#", CultureInfo.InvariantCulture) + "\n" + u.Description
-                        : t > 0 ? "CLASS UP TO MEET" : open ? "PICK IT AT THE START" : "UNLOCKS AT LEVEL " + Units.UnlockLevel(line);
+                        ? Loc.F("DMG {0}  RATE {1}", u.Damage.ToString("0.#", CultureInfo.InvariantCulture), u.Rate.ToString("0.#", CultureInfo.InvariantCulture)) + "\n" + Loc.T(u.Description)
+                        : t > 0 ? Loc.T("CLASS UP TO MEET") : open ? Loc.T("PICK IT AT THE START") : Loc.F("UNLOCKS AT LEVEL {0}", Units.UnlockLevel(line));
                     Label(row, stats, 20, UIFactory.Gray, TextAnchor.UpperCenter, topLeft, new Vector2(x, known ? -282f : -250f), new Vector2(194f, 120f), hang);
                     if (t < Units.Tiers - 1)
                     {
@@ -333,28 +336,28 @@ namespace NumberRoad.UI
         static string Weakness(ElementMask weak, ElementMask resist)
         {
             string text = string.Empty;
-            if (weak != ElementMask.None) text += "WEAK: " + Combat.Names(weak);
-            if (resist != ElementMask.None) text += (text.Length > 0 ? "     " : string.Empty) + "RESISTS: " + Combat.Names(resist);
+            if (weak != ElementMask.None) text += Loc.F("WEAK: {0}", Combat.Names(weak));
+            if (resist != ElementMask.None) text += (text.Length > 0 ? "     " : string.Empty) + Loc.F("RESISTS: {0}", Combat.Names(resist));
             return text;
         }
 
         public void ShowBestiary()
         {
-            RectTransform list = OpenList("ENEMIES  " + Save.EnemiesDiscovered + "/" + Enemies.All.Length, ShowBestiary);
+            RectTransform list = OpenList(Loc.F("ENEMIES  {0}/{1}", Save.EnemiesDiscovered, Enemies.All.Length), ShowBestiary);
             foreach (EnemyType t in Enemies.All)
             {
                 bool known = Save.HasSeenEnemy(t.Id);
-                BestiaryRow(list, t.Key, t.Model, known, known ? t.Name : "???",
-                    known ? t.Description : "Not met yet. Appears from level " + t.Unlock + ".",
-                    known ? "DEFEATED " + Fmt.Num(Save.KillsOf(t.Id)) : null, new Color(0f, 0f, 0f, 0.06f), known ? Weakness(t.Weak, t.Resist) : null);
+                BestiaryRow(list, t.Key, t.Model, known, known ? Loc.T(t.Name) : "???",
+                    known ? Loc.T(t.Description) : Loc.F("Not met yet. Appears from level {0}.", t.Unlock),
+                    known ? Loc.F("DEFEATED {0}", Fmt.Num(Save.KillsOf(t.Id))) : null, new Color(0f, 0f, 0f, 0.06f), known ? Weakness(t.Weak, t.Resist) : null);
             }
             RectTransform header = UIFactory.Item(list, "BossHeader", new Vector2(840f, 70f));
-            Label(header, "BOSSES", 40, UIFactory.Red, TextAnchor.MiddleCenter, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(800f, 60f));
+            Label(header, Loc.T("BOSSES"), 40, UIFactory.Red, TextAnchor.MiddleCenter, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(800f, 60f));
             foreach (BossType b in Enemies.Bosses)
             {
                 bool met = Save.bestLevel > b.Id + 1 || Save.statBosses > b.Id;
-                BestiaryRow(list, b.Key, b.Model, met, met ? b.Name : "???",
-                    met ? b.Description : "Guards level " + (b.Id + 1) + " and every " + Enemies.Bosses.Length + "th level after it.",
+                BestiaryRow(list, b.Key, b.Model, met, met ? Loc.T(b.Name) : "???",
+                    met ? Loc.T(b.Description) : Loc.F("Guards level {0} and every {1}th level after it.", b.Id + 1, Enemies.Bosses.Length),
                     null, new Color(1f, 0.2f, 0.1f, 0.08f), met ? Weakness(b.Weak, b.Resist) : null);
             }
         }
@@ -370,7 +373,7 @@ namespace NumberRoad.UI
             if (readyNow > 0)
             {
                 RectTransform head = UIFactory.Item(list, "ClaimAll", new Vector2(840f, 130f));
-                Button all = UIFactory.Button(head, "ClaimAll", "CLAIM ALL (" + readyNow + ")", UIFactory.Green, 46, ClaimAll, out _);
+                Button all = UIFactory.Button(head, "ClaimAll", Loc.F("CLAIM ALL ({0})", readyNow), UIFactory.Green, 46, ClaimAll, out _);
                 UIFactory.Place((RectTransform)all.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(620f, 116f));
                 all.gameObject.AddComponent<Pulse>();
             }
@@ -382,7 +385,7 @@ namespace NumberRoad.UI
                 RectTransform row = UIFactory.Item(list, a.Id, new Vector2(840f, 150f));
                 Image back = UIFactory.Image(row, "Back", ready ? new Color(1f, 0.85f, 0.3f, 0.3f) : new Color(0f, 0f, 0f, 0.06f), GameAssets.RoundedSprite);
                 UIFactory.Fill(back.rectTransform);
-                Label(row, a.Title, 34, UIFactory.Ink, TextAnchor.MiddleLeft, topLeft, new Vector2(24f, -12f), new Vector2(600f, 44f));
+                Label(row, Achievements.TitleOf(a), 34, UIFactory.Ink, TextAnchor.MiddleLeft, topLeft, new Vector2(24f, -12f), new Vector2(600f, 44f));
                 Label(row, Achievements.Describe(a), 26, UIFactory.Gray, TextAnchor.MiddleLeft, topLeft, new Vector2(24f, -56f), new Vector2(600f, 36f));
 
                 Image track = UIFactory.Image(row, "Track", new Color(0f, 0f, 0f, 0.15f), GameAssets.RoundedSprite);
@@ -395,7 +398,7 @@ namespace NumberRoad.UI
                 Label(row, Fmt.Num(Math.Min(progress, a.Target)) + "/" + Fmt.Num(a.Target), 24, UIFactory.Gray, TextAnchor.MiddleLeft,
                     bottomLeft, new Vector2(436f, 18f), new Vector2(200f, 30f));
 
-                string label = claimed ? "DONE" : a.Gems + " GEMS\n+" + Fmt.Num(a.Coins);
+                string label = claimed ? Loc.T("DONE") : Loc.F("{0} GEMS\n+{1}", a.Gems, Fmt.Num(a.Coins));
                 Button claim = UIFactory.Button(row, "Claim", label, ready ? UIFactory.Green : UIFactory.Gray, 26, () => _game.ClaimAchievement(a), out _);
                 UIFactory.Place((RectTransform)claim.transform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-16f, 0f), new Vector2(170f, 116f));
                 claim.interactable = ready;
@@ -411,7 +414,7 @@ namespace NumberRoad.UI
             var top = new Vector2(0.5f, 1f);
             if (!s.Any)
             {
-                Label(body, "NOTHING TO CLAIM RIGHT NOW.\nPLAY A LEVEL AND COME BACK!", 38, UIFactory.Ink, TextAnchor.MiddleCenter, top, new Vector2(0f, -120f),
+                Label(body, Loc.T("NOTHING TO CLAIM RIGHT NOW.\nPLAY A LEVEL AND COME BACK!"), 38, UIFactory.Ink, TextAnchor.MiddleCenter, top, new Vector2(0f, -120f),
                     new Vector2(780f, 200f));
                 Big(body, "OK", UIFactory.Blue, CloseAll, new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(420f, 140f), out _);
                 return;
@@ -462,7 +465,7 @@ namespace NumberRoad.UI
                 ("COINS EARNED", Fmt.Num(s.statCoinsEarned)),
                 ("STARS", s.TotalStars.ToString(CultureInfo.InvariantCulture)),
                 ("ENEMIES DISCOVERED", s.EnemiesDiscovered + "/" + Enemies.All.Length),
-                ("LOGIN STREAK", s.loginStreak + " DAYS"),
+                ("LOGIN STREAK", Loc.F("{0} DAYS", s.loginStreak)),
                 ("PLAY TIME", Fmt.Duration(s.statPlaySeconds)),
             };
             for (int i = 0; i < lines.Length; i++)
@@ -482,7 +485,7 @@ namespace NumberRoad.UI
             int day = Daily.StreakDay(Save);
             bool ready = Daily.LoginRewardReady(Save, today);
             var top = new Vector2(0.5f, 1f);
-            Label(body, "LOGIN STREAK: " + Mathf.Max(1, Save.loginStreak) + (Save.loginStreak == 1 ? " DAY" : " DAYS"), 40, UIFactory.Ink,
+            Label(body, Loc.F(Save.loginStreak <= 1 ? "LOGIN STREAK: {0} DAY" : "LOGIN STREAK: {0} DAYS", Mathf.Max(1, Save.loginStreak)), 40, UIFactory.Ink,
                 TextAnchor.MiddleCenter, top, new Vector2(0f, -20f), new Vector2(820f, 60f));
             for (int d = 1; d <= 7; d++)
             {
@@ -493,13 +496,13 @@ namespace NumberRoad.UI
                 Image cell = UIFactory.Image(body, "Day" + d, color, GameAssets.RoundedSprite);
                 UIFactory.Place(cell.rectTransform, top, top, new Vector2((d - 4) * 120f, -190f), new Vector2(110f, 190f));
                 if (current) cell.gameObject.AddComponent<Pulse>();
-                Label(cell.rectTransform, "DAY " + d, 24, UIFactory.Ink, TextAnchor.MiddleCenter, new Vector2(0.5f, 1f), new Vector2(0f, -24f), new Vector2(110f, 30f));
-                string amount = prize.Kind == PrizeKind.Gems ? prize.Amount + "\nGEMS" : Fmt.Num(prize.Amount) + "\nCOINS";
+                Label(cell.rectTransform, Loc.F("DAY {0}", d), 24, UIFactory.Ink, TextAnchor.MiddleCenter, new Vector2(0.5f, 1f), new Vector2(0f, -24f), new Vector2(110f, 30f));
+                string amount = prize.Kind == PrizeKind.Gems ? Loc.F("{0}\nGEMS", prize.Amount) : Loc.F("{0}\nCOINS", Fmt.Num(prize.Amount));
                 Label(cell.rectTransform, past ? "OK" : amount, 24, prize.Kind == PrizeKind.Gems ? UIFactory.Purple : UIFactory.GoldDark, TextAnchor.MiddleCenter,
                     new Vector2(0.5f, 0.5f), new Vector2(0f, -14f), new Vector2(108f, 80f));
             }
             Prize todayPrize = Daily.LoginPrize(day, Save.bestLevel);
-            Label(body, ready ? "TODAY: " + todayPrize.Label : "COME BACK TOMORROW FOR DAY " + (day % 7 + 1) + "!", 38, UIFactory.Ink,
+            Label(body, ready ? Loc.F("TODAY: {0}", todayPrize.Label) : Loc.F("COME BACK TOMORROW FOR DAY {0}!", day % 7 + 1), 38, UIFactory.Ink,
                 TextAnchor.MiddleCenter, top, new Vector2(0f, -360f), new Vector2(820f, 60f));
             if (ready)
             {
@@ -534,16 +537,16 @@ namespace NumberRoad.UI
                 string text;
                 switch (p.Kind)
                 {
-                    case PrizeKind.Gems: text = p.Amount + "\nGEMS"; break;
+                    case PrizeKind.Gems: text = Loc.F("{0}\nGEMS", p.Amount); break;
                     case PrizeKind.FreeUpgrade: text = "FREE\nUPGRADE"; break;
                     case PrizeKind.DoubleCoins: text = "x2 COINS\nNEXT RUN"; break;
-                    default: text = Fmt.Num(p.Amount) + "\nCOINS"; break;
+                    default: text = Loc.F("{0}\nCOINS", Fmt.Num(p.Amount)); break;
                 }
                 Label(cell.rectTransform, text, 32, p.Kind == PrizeKind.Gems ? UIFactory.Purple : UIFactory.Ink, TextAnchor.MiddleCenter,
                     new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(180f, 160f));
                 cells[i] = cell;
             }
-            Text status = Label(body, ready ? "ONE FREE DRAW EVERY DAY" : "TODAY'S PRIZE: " + prizes[result].Label + "\nNEXT DRAW TOMORROW",
+            Text status = Label(body, ready ? Loc.T("ONE FREE DRAW EVERY DAY") : Loc.F("TODAY'S PRIZE: {0}\nNEXT DRAW TOMORROW", prizes[result].Label),
                 36, UIFactory.Ink, TextAnchor.MiddleCenter, top, new Vector2(0f, -520f), new Vector2(820f, 110f));
             if (!ready) cells[result].color = UIFactory.Gold;
 
@@ -585,7 +588,7 @@ namespace NumberRoad.UI
                 {
                     clock = duration + 2f;
                     _game.ClaimLucky();
-                    status.text = "YOU WON: " + prizes[result].Label + "!";
+                    status.text = Loc.F("YOU WON: {0}!", prizes[result].Label);
                     _game.Context.Audio.Play(Sfx.Chest);
                     Haptics.Tap(25);
                     _game.UI.RefreshSave(Save);
@@ -600,8 +603,8 @@ namespace NumberRoad.UI
             RectTransform body = Open("DAILY CHALLENGE", new Vector2(900f, 860f), null);
             bool ready = Daily.ChallengeReady(Save, Daily.Today);
             var top = new Vector2(0.5f, 1f);
-            Label(body, "LEVEL " + Daily.ChallengeLevel(Save) + " WITH DOUBLE HORDES", 42, UIFactory.Red, TextAnchor.MiddleCenter, top, new Vector2(0f, -30f), new Vector2(820f, 60f));
-            Label(body, "A new road every day, a few levels ahead of you.\nWin for DOUBLE COINS and " + Daily.ChallengeGems + " GEMS.\nYou keep your main level either way.",
+            Label(body, Loc.F("LEVEL {0} WITH DOUBLE HORDES", Daily.ChallengeLevel(Save)), 42, UIFactory.Red, TextAnchor.MiddleCenter, top, new Vector2(0f, -30f), new Vector2(820f, 60f));
+            Label(body, Loc.F("A new road every day, a few levels ahead of you.\nWin for DOUBLE COINS and {0} GEMS.\nYou keep your main level either way.", Daily.ChallengeGems),
                 34, UIFactory.Ink, TextAnchor.UpperCenter, top, new Vector2(0f, -120f), new Vector2(800f, 220f));
             if (ready)
             {
@@ -613,7 +616,7 @@ namespace NumberRoad.UI
             }
             else
             {
-                Label(body, "DONE FOR TODAY - COME BACK TOMORROW!", 36, UIFactory.Green, TextAnchor.MiddleCenter, top, new Vector2(0f, -380f), new Vector2(800f, 60f));
+                Label(body, Loc.T("DONE FOR TODAY - COME BACK TOMORROW!"), 36, UIFactory.Green, TextAnchor.MiddleCenter, top, new Vector2(0f, -380f), new Vector2(800f, 60f));
                 Big(body, "OK", UIFactory.Blue, CloseAll, new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(420f, 140f), out _);
             }
         }
@@ -624,12 +627,11 @@ namespace NumberRoad.UI
         {
             RectTransform body = Open("ENDLESS", new Vector2(900f, 960f), null);
             var top = new Vector2(0.5f, 1f);
-            Label(body, "HOW FAR CAN YOUR ARMY GO?", 44, UIFactory.Purple, TextAnchor.MiddleCenter, top, new Vector2(0f, -30f), new Vector2(820f, 60f));
-            Label(body, "One run, stage after stage, starting at level " + Mathf.Max(1, Save.bestLevel) + ".\n" +
-                        "Your army, power gates and power-ups carry on to the next stage.\n" +
-                        "Every boss you beat makes the enemies 1% stronger.",
+            Label(body, Loc.T("HOW FAR CAN YOUR ARMY GO?"), 44, UIFactory.Purple, TextAnchor.MiddleCenter, top, new Vector2(0f, -30f), new Vector2(820f, 60f));
+            Label(body, Loc.F("One run, stage after stage, starting at level {0}.\nYour army, power gates and power-ups carry on to the next stage.\nEvery boss you beat makes the enemies 1% stronger.",
+                    Mathf.Max(1, Save.bestLevel)),
                 34, UIFactory.Ink, TextAnchor.UpperCenter, top, new Vector2(0f, -120f), new Vector2(800f, 260f));
-            string best = Save.endlessBest > 0 ? "BEST: " + Save.endlessBest + (Save.endlessBest == 1 ? " BOSS" : " BOSSES") : "NO RECORD YET";
+            string best = Save.endlessBest > 0 ? Loc.F(Save.endlessBest == 1 ? "BEST: {0} BOSS" : "BEST: {0} BOSSES", Save.endlessBest) : Loc.T("NO RECORD YET");
             Label(body, best, 44, UIFactory.GoldDark, TextAnchor.MiddleCenter, top, new Vector2(0f, -430f), new Vector2(800f, 64f));
             Big(body, "START", new Color32(120, 70, 200, 255), () =>
             {
@@ -644,7 +646,7 @@ namespace NumberRoad.UI
         {
             RectTransform body = Open("WELCOME BACK!", new Vector2(860f, 700f), null);
             var top = new Vector2(0.5f, 1f);
-            Label(body, "YOUR ARMY COLLECTED WHILE YOU WERE AWAY", 34, UIFactory.Ink, TextAnchor.MiddleCenter, top, new Vector2(0f, -30f), new Vector2(800f, 60f));
+            Label(body, Loc.T("YOUR ARMY COLLECTED WHILE YOU WERE AWAY"), 34, UIFactory.Ink, TextAnchor.MiddleCenter, top, new Vector2(0f, -30f), new Vector2(800f, 60f));
             RectTransform coin = UIFactory.Coin(body, 90f);
             UIFactory.Place(coin, top, new Vector2(0.5f, 0.5f), new Vector2(-170f, -180f), new Vector2(90f, 90f));
             Label(body, "+" + Fmt.Coins(coins), 90, UIFactory.Gold, TextAnchor.MiddleLeft, top, new Vector2(110f, -180f), new Vector2(460f, 120f));

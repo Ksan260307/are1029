@@ -31,9 +31,9 @@ namespace NumberRoad.Core
         public static string Duration(double seconds)
         {
             long s = (long)System.Math.Max(0, seconds);
-            if (s < 60) return s + "s";
-            if (s < 3600) return (s / 60) + "m " + (s % 60).ToString("00", Inv) + "s";
-            return (s / 3600) + "h " + (s / 60 % 60).ToString("00", Inv) + "m";
+            if (s < 60) return Loc.F("{0}s", s);
+            if (s < 3600) return Loc.F("{0}m {1}s", s / 60, (s % 60).ToString("00", Inv));
+            return Loc.F("{0}h {1}m", s / 3600, (s / 60 % 60).ToString("00", Inv));
         }
     }
 }

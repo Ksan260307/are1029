@@ -44,9 +44,9 @@ namespace NumberRoad.UI
             box.gameObject.AddComponent<PopIn>();
             _group = box.gameObject.AddComponent<CanvasGroup>();
 
-            _title = UIFactory.Text(box, "Title", "WAVE CLEAR!", 84, UIFactory.Gold, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 4f);
+            _title = UIFactory.Text(box, "Title", Loc.T("WAVE CLEAR!"), 84, UIFactory.Gold, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 4f);
             UIFactory.Place(_title.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, 0f), new Vector2(1000f, 110f));
-            Text sub = UIFactory.Text(box, "Subtitle", "PICK ONE POWER-UP", 42, Color.white, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 2f);
+            Text sub = UIFactory.Text(box, "Subtitle", Loc.T("PICK ONE POWER-UP"), 42, Color.white, TextAnchor.MiddleCenter, UIFactory.OutlineDark, 2f);
             UIFactory.Place(sub.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -110f), new Vector2(1000f, 60f));
 
             for (int i = 0; i < Cards; i++)
@@ -85,7 +85,7 @@ namespace NumberRoad.UI
                 _texts[i].lineSpacing = 1.05f;
             }
 
-            _reroll = UIFactory.Button(box, "Reroll", "NEW CARDS", UIFactory.Purple, 44, game.RerollBuffs, out _rerollText);
+            _reroll = UIFactory.Button(box, "Reroll", Loc.T("NEW CARDS"), UIFactory.Purple, 44, game.RerollBuffs, out _rerollText);
             UIFactory.Place((RectTransform)_reroll.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), Vector2.zero, new Vector2(480f, 120f));
             Root.SetActive(false);
         }
@@ -117,7 +117,7 @@ namespace NumberRoad.UI
         {
             _shown = session.Options;
             _clock = 0f;
-            _title.text = "WAVE " + (session.Wave + 1) + " / " + session.Waves + " CLEAR!";
+            _title.text = Loc.F("WAVE {0} / {1} CLEAR!", session.Wave + 1, session.Waves);
             for (int i = 0; i < Cards; i++)
             {
                 bool has = i < _shown.Length;
@@ -127,15 +127,15 @@ namespace NumberRoad.UI
                 Color kind = Buffs.KindColor(b.Kind);
                 _stripes[i].color = kind;
                 _tags[i].color = kind;
-                _kinds[i].text = Buffs.KindName(b.Kind);
+                _kinds[i].text = Loc.T(Buffs.KindName(b.Kind));
                 int owned = session.Mods.CountOf(b);
-                _rarities[i].text = RarityName(b.Rarity) + (owned > 0 ? "  -  OWNED x" + owned : string.Empty);
+                _rarities[i].text = Loc.T(RarityName(b.Rarity)) + (owned > 0 ? Loc.F("  -  OWNED x{0}", owned) : string.Empty);
                 _rarities[i].color = RarityColor(b.Rarity);
-                _names[i].text = b.Name;
-                _texts[i].text = b.Description.ToUpperInvariant();
+                _names[i].text = Loc.T(b.Name);
+                _texts[i].text = Loc.Upper(Loc.T(b.Description));
             }
             _reroll.gameObject.SetActive(session.Rerolls > 0);
-            _rerollText.text = "NEW CARDS (" + session.Rerolls + ")";
+            _rerollText.text = Loc.F("NEW CARDS ({0})", session.Rerolls);
         }
 
         static string RarityName(BuffRarity rarity)
