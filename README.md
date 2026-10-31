@@ -107,7 +107,7 @@ powershell -ExecutionPolicy Bypass -File tools/run_tests.ps1 -Only PlayMode
 
 | 種類 | 件数 | 場所 |
 | --- | ---: | --- |
-| Unity EditMode（単体） | 217 | `NumberRoad/Assets/NumberRoad/Tests/EditMode` |
+| Unity EditMode（単体） | 219 | `NumberRoad/Assets/NumberRoad/Tests/EditMode` |
 | Unity PlayMode（総合） | 10 | `NumberRoad/Assets/NumberRoad/Tests/PlayMode` |
 | Blender（単体） | 11 | `blender/tests` |
 | Python（単体） | 24 | `tools/tests` |
